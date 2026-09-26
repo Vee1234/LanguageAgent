@@ -5,3 +5,4 @@ emotional_colour_prompt = "Describe the feelings that \"{word}\" evokes in {lang
 usage_conditions_prompt = "State when \"{word}\" is used in {language} — the situations, relationships and register it suits. Answer as a short fragment, not a sentence. Your response must contain nothing else."
 notable_use_prompt = "If \"{word}\" appears in a well-known saying, proverb, work of literature, speech or song in {language}, quote that use in one line. If there is no such use, reply with exactly NONE — in English, untranslated. Never invent a use. Your response must contain nothing else."
 lyric_prompt = "Quote one line from a well-known song in {language} that contains \"{word}\". Give the line only, with no title or artist. Your response must contain nothing else."
+none_response = "NONE"
