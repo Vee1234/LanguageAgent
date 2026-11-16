@@ -29,6 +29,9 @@ Python only if feature 6's pronunciation scoring ever needs a self-hosted model.
   - *Host pays:* per-user quotas / rate limits, or a paid tier.
   - *User pays:* bring-your-own Gemini key, or self-host a fork.
   - *Shared cache:* generate content once per word + language and reuse it across users.
+    **DECIDED (2026-11-16): use the shared cache.** `words` and generated `notes` are shared
+    and read-only for users (written only by the `generate-word` Edge Function); `cards`,
+    user notes and decks are per-user. Not yet migrated: the current schema is still per-user.
   - Until decided, sign-ups and auth below are marked **OPEN**.
 - [ ] **Schema.** Minimal draft to start from:
 
