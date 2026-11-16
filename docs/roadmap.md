@@ -32,6 +32,17 @@ Python only if feature 6's pronunciation scoring ever needs a self-hosted model.
     **DECIDED (2026-11-16): use the shared cache.** `words` and generated `notes` are shared
     and read-only for users (written only by the `generate-word` Edge Function); `cards`,
     user notes and decks are per-user. Not yet migrated: the current schema is still per-user.
+    Target schema (content shared, progress per user):
+
+    | Table | Shared? | Key | Holds |
+    |---|---|---|---|
+    | `words` | shared | `id`; unique (`language`, `lemma`) | language, lemma |
+    | `notes` (generated) | shared | `id` → `word_id` | definition, example, register, … |
+    | `cards` | shared | `id` → `word_id` | card type (`definition`, `register`, …): which note is the question |
+    | `user_cards` | per user | (`user_id`, `card_id`) | `due_at`, `interval_days`, `ease`, `reps`, `surface_form` |
+
+    Shared tables: readable by signed-in users, writable only by the Edge Function (service key).
+    `user_cards`: RLS `user_id = auth.uid()`. User-written notes stay per-user, with `user_id`.
   - Until decided, sign-ups and auth below are marked **OPEN**.
 - [ ] **Schema.** Minimal draft to start from:
 
