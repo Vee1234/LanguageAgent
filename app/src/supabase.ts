@@ -8,10 +8,14 @@ export const configError =
 
 export const supabase = createClient(url ?? "http://localhost", anonKey ?? "missing");
 
+/** Must match REGISTERS in supabase/functions/generate-word and the notes_register_value check. */
+export const REGISTERS = ["Frozen", "Formal", "Consultative", "Casual", "Intimate"] as const;
+
 /** The fields generate-word returns, in display order. */
 export const CARD_FIELDS = [
   { key: "definition", label: "Definition" },
   { key: "example", label: "Example" },
+  { key: "register", label: "Register" },
   { key: "emotional_colour", label: "Emotional colour" },
   { key: "usage_conditions", label: "When it's used" },
   { key: "notable_use", label: "Notable use" },

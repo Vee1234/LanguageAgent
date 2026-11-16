@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import { CARD_FIELDS, supabase, type FieldKey, type GeneratedCard } from "./supabase";
+import { CARD_FIELDS, REGISTERS, supabase, type FieldKey, type GeneratedCard } from "./supabase";
 
 type Step = "word" | "review" | "saved";
 
@@ -116,8 +116,14 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
           {CARD_FIELDS.map(({ key, label }) => (
             <label key={key} className="field">
               {label}
-              <textarea rows={2} value={card[key]} placeholder="None found — add your own"
-                onChange={(e) => edit(key, e.target.value)} />
+              {key === "register" ? (
+                <select value={card.register ?? ""} onChange={(e) => edit(key, e.target.value)}>
+                  {REGISTERS.map((r) => <option key={r}>{r}</option>)}
+                </select>
+              ) : (
+                <textarea rows={2} value={card[key] ?? ""} placeholder="None found — add your own"
+                  onChange={(e) => edit(key, e.target.value)} />
+              )}
             </label>
           ))}
 
