@@ -18,17 +18,17 @@ class LanguageUsageCardGenerator(CardGenerator):
         )
 
     def get_example(self, word: str) -> str:
-        return self.client.send_prompt(example_prompt.format(word = word, language = self.language))
+        return self.client.send_prompt(example_prompt.format(word = word, language = self.language), self.system_context)
 
     def get_emotional_colour(self, word: str) -> str:
-        return self.client.send_prompt(emotional_colour_prompt.format(word = word, language = self.language))
+        return self.client.send_prompt(emotional_colour_prompt.format(word = word, language = self.language), self.system_context)
 
     def get_usage_conditions(self, word: str) -> str:
-        return self.client.send_prompt(usage_conditions_prompt.format(word = word, language = self.language))
+        return self.client.send_prompt(usage_conditions_prompt.format(word = word, language = self.language), self.system_context)
 
     def get_lyric(self, word: str) -> str:
-        return self.client.send_prompt(lyric_prompt.format(word = word, language = self.language))
+        return self.client.send_prompt(lyric_prompt.format(word = word, language = self.language), self.system_context)
 
     def get_notable_use(self, word: str) -> str:
-        use = self.client.send_prompt(notable_use_prompt.format(word = word, language = self.language))
+        use = self.client.send_prompt(notable_use_prompt.format(word = word, language = self.language), self.system_context)
         return "" if use.strip() == "NONE" else use
