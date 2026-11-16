@@ -24,7 +24,9 @@ export default function Words({ version }: { version: number }) {
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
-    let current = true; // ignore a slow response that a newer read has overtaken
+    // Ignore a slow response once a newer read has started or this list has unmounted
+    // (App remounts it when the signed-in user changes).
+    let current = true;
     supabase
       .from("words")
       .select("id, surface_form, lemma, language, created_at, notes(kind, body)")

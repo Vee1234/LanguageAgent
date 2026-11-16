@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { configError, supabase } from "./supabase";
 import Login from "./Login";
@@ -44,7 +44,10 @@ export default function App() {
         )}
       </header>
       {session ? (
-        <>
+        // Keyed by user: a different user remounts everything below, dropping the previous
+        // user's list, draft card and in-flight requests. Keyed by user id, not the session,
+        // so routine token refreshes don't remount.
+        <Fragment key={session.user.id}>
           <nav className="tabs" aria-label="Sections">
             <button aria-current={tab === "add" ? "page" : undefined} onClick={() => setTab("add")}>
               Add word
@@ -63,7 +66,7 @@ export default function App() {
           <div hidden={tab !== "words"}>
             <Words version={wordsVersion} />
           </div>
-        </>
+        </Fragment>
       ) : (
         <Login />
       )}

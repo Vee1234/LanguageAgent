@@ -7,3 +7,4 @@ before every brainstorm; the `qodo-bug-review` skill adds to it.
 Format: `- **L<n>** (<Day X>, <area>): <lesson> — [review](BugReview/Day%20X%20Bug%20Review.md)`
 
 <!-- Add new lessons below this line, numbered in order. -->
+- **L1** (Day 1, app state): Server-side security (RLS) only governs what is fetched; any client-side state holding user data must be scoped to the signed-in user's identity so that changing who is signed in always discards it. — [review](BugReview/Day%201%20Bug%20Review.md)
