@@ -17,7 +17,9 @@ async function errorMessage(err: unknown): Promise<string> {
   return err instanceof Error ? err.message : String(err);
 }
 
-export default function AddWord() {
+type Props = { onSaved: () => void; onViewWords: () => void };
+
+export default function AddWord({ onSaved, onViewWords }: Props) {
   const [step, setStep] = useState<Step>("word");
   const [word, setWord] = useState("");
   const [language, setLanguage] = useState(() => localStorage.getItem("language") ?? "French");
@@ -57,6 +59,7 @@ export default function AddWord() {
       );
     }
     setStep("saved");
+    onSaved();
   }
 
   function startOver() {
@@ -134,7 +137,10 @@ export default function AddWord() {
           <p>
             <strong>{card.word}</strong> is in your {card.language} words, and its card is due for review now.
           </p>
-          <button className="primary" onClick={startOver}>Add another word</button>
+          <div className="row">
+            <button className="secondary" onClick={onViewWords}>See My words</button>
+            <button className="primary" onClick={startOver}>Add another word</button>
+          </div>
         </section>
       )}
     </>
