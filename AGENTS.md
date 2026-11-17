@@ -69,58 +69,40 @@ Docs-only and config-only changes don't need tests.
 
 ## Project rules
 
-Each rule comes from a real bug found in review (see `LessonsLearned.md`, L1–L10).
+### 1. The More-Than-a-Translation Rule: a card is never just a translation
+**Applies to:** card generation (`supabase/functions/generate-word/`, `cardGenerators/`, `cardModels/`)
+and the card screens in `app/src/`.
+Every generated card must include the word's register, its connotations (`emotional_colour`) and
+at least one example sentence, alongside the definition. If one of these is missing, the card shows it as missing. It's
+never quietly filled in or left out.
+**Why:** this is the vision. Knowing a word means knowing how formal it is, what it implies and when a
+native speaker would choose it, and a bare translation teaches none of that.
 
-### 1. The Prove-You're-a-User Rule: elevated access requires a real signed-in user
-**Applies to:** `supabase/functions/**` and any future server code that uses the service-role key.
-Secrets (the Gemini key and the service-role key) live only in Edge Functions, never in `app/`.
-Before any code path uses service-role access, it must establish who the caller is and refuse
-anyone who isn't a real signed-in user. A token with a valid signature isn't enough on its own,
-because the anon key is itself a valid JWT.
-**Why:** the service role bypasses RLS. If it trusts a token without checking for a user, anyone
-holding the public anon key can write to shared tables. (L5)
+### 2. The Real-World Rule: examples sound like real use, not a textbook
+**Applies to:** example sentences, notable uses and lyrics, in the Gemini prompts
+(`supabase/functions/generate-word/logic.ts`, `cardGenerators/`) and in any future feature that adds
+examples.
+Where possible, examples come from how the word is really used: song lyrics, real texts and notable
+uses. Generated examples must sound like something a native speaker would actually say, in the
+register the card gives. Invented textbook sentences ("The cat is on the table") don't count.
+**Why:** immersion. The aim is to carry words into real reading and conversation, so learners need to
+meet a word the way they'll meet it in the wild.
 
-### 2. The Model-Is-Not-a-Firewall Rule: user text to an LLM is constrained in code, and its output is validated in code
-**Applies to:** every Gemini call (`supabase/functions/generate-word/logic.ts`, `GeminiClient.py`, `cardGenerators/`).
-Restrict user input with a code-enforced allowlist (e.g. the word's character set and length).
-Keep it out of the instructions, so that it's passed only as data. Validate the model's output
-against the expected schema before storing it.
-**Why:** generated cards are cached and shown to *every* user. If one user's input steers the
-model, that user's prompt injection reaches everyone else. Asking the model to "treat this as
-data" isn't a control. (L6)
+### 3. The Where-I-Met-It Rule: a word keeps the context it came from
+**Applies to:** word capture (adding a word by typing it, from a screenshot or from a text) and the
+schema in `supabase/migrations/`.
+When a word is captured from a screenshot or a text, the sentence it appeared in is saved with the
+learner's card and shown on it. Code that adds a word from a source must not drop that context.
+**Why:** a word is easier to remember when it's tied to where you found it. Your own encounter with a
+word is the most immersive example the app can show.
 
-### 3. The Database-Is-the-Truth Rule: bounded reads, real counts, and the database picks the winner
-**Applies to:** Supabase queries in `app/src/` and `supabase/functions/`, and to the schema in `supabase/migrations/`.
-- Every read of a collection that grows with use is bounded and keyset-paged by a stable cursor
-  (e.g. `created_at` + `id`), never fetched all at once or paged by offset.
-- Any count shown to the user comes from the database (`count: "exact"`), never from how many
-  rows the client happened to receive.
-- When concurrent requests can write the same shared record, a unique constraint decides which
-  write wins (e.g. `unique (language, form_key)` on shared words), and every request continues with the row that was *actually
-  stored*, not the value it computed.
-**Why:** Supabase silently caps responses at 1,000 rows, so "My words" lost data and showed a
-wrong count. And two users adding the same word at the same time could each believe their own
-version had been saved. (L3, L7)
-
-### 4. The Screen-Never-Lies Rule: what's on screen belongs to this user, is real, and survives failures
-**Applies to:** React components and client state in `app/src/`.
-- Client state that holds user data lives inside the subtree keyed by `session.user.id`, so
-  switching users discards it.
-- A missing value must look missing. Don't let a control's default stand in for data nobody
-  chose, and never save that default as if the user had chosen it.
-- A failed network read is a normal state. Show a visible retry, and never discard data already
-  on screen.
-**Why:** RLS only controls what's *fetched*. The browser kept user A's words visible to user B,
-and an unsaved card could have been saved under the wrong account. Default values and blank
-error screens mislead the user in similar ways. (L1, L4, L8)
-
-### 5. The No-Untested-Behaviour Rule: every behaviour change ships with a test that fails without it
+### 4. The No-Untested-Behaviour Rule: every behaviour change ships with a test that fails without it
 **Applies to:** all code in `app/src/`, `supabase/functions/`, and the Python modules and `tests/`.
-A PR that changes behaviour must include a test that fails without the change and passes with
-it (see *Development workflow* above). A fix for a reported bug includes a regression test that
-reproduces that bug.
-**Why:** each Day 1 bug was fixed red-first. That way the test proves the fix addresses the
-reported failure and keeps it from coming back.
+A PR that changes behaviour must include a test that fails without the change and passes with it (see
+*Development workflow* above). A fix for a reported bug includes a regression test that reproduces
+that bug.
+**Why:** a test that was red first proves the change does what it claims, and it keeps a fixed bug
+from coming back.
 
 ## Review scope
 
