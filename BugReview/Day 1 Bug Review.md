@@ -553,7 +553,7 @@ Option 1: no database change, and the app already knows whether it sent edits.
 - **Refactor:** none needed. One test checked text split by `<strong>`, so it now checks the whole Saved panel's text.
 
 ### Lesson learned
-> **L9 (proposed, awaiting your approval):** A count describes what an operation did, not whether it succeeded: branch only the messaging on it, never the success path.
+> **L9 (approved by user 2026-11-17):** A count describes what an operation did, not whether it succeeded: branch only the messaging on it, never the success path.
 
 ## Bug 16: Saving a word can freeze list paging
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
