@@ -1,4 +1,4 @@
-from scripts.qodo_review import blocking, is_fresh, parse_summary
+from scripts.qodo_review import analysed_commit, blocking, is_fresh, parse_summary
 
 # Trimmed copy of Qodo's "Code Review by Qodo" PR comment (HTML as GitHub returns it).
 SUMMARY = """<h3>Code Review by Qodo</h3>
@@ -123,6 +123,69 @@ def test_blocking_keeps_medium_and_above_by_default():
     assert len(blocking(items, "low")) == 3
 
 
+QUOTED_BADGE = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (2)</code>
+{BADGE.format("High")}
+<details>
+<summary>  1.  Badge quoted in a prompt <code>🐞 Bug</code></summary>
+> <details><summary>Agent prompt</summary>
+>```
+>Qodo renders {BADGE.format("Low")} above low findings.
+>```
+></details>
+</details>
+<details>
+<summary>  2.  Another high finding <code>🐞 Bug</code></summary>
+</details>
+"""
+
+
+def test_a_badge_quoted_inside_a_finding_does_not_change_later_severities():
+    review = parse_summary(QUOTED_BADGE)
+    assert [i["severity"] for i in review["items"]] == ["high", "high"]
+    assert len(blocking(review["items"])) == 2
+
+
+def test_quoted_unbalanced_markup_inside_a_finding_does_not_hide_a_real_group_badge():
+    # Live layout: a finding's quoted code contains a stray "<details>", then a real Low group follows.
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (2)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Quotes test fixtures <code>🐞 Bug</code></summary>
+>```diff
+>+<details>
+>```
+</details>
+{BADGE.format("Low")}
+<details>
+<summary>  2.  A real low finding <code>🐞 Bug</code></summary>
+</details>
+"""
+    assert [i["severity"] for i in parse_summary(body)["items"]] == ["medium", "low"]
+
+
+HEAD = "0a100d2fe5ef4fccc222db35c648effec425dcda"
+OLD = "1e610544278fbd32cf350f768382029c07c20752"
+
+
+def test_reads_the_analysed_commit_from_qodos_trailing_marker():
+    body = (f'<p><b>Resolving commit:</b> <a href="https://github.com/o/r/commit/{OLD}">x</a></p>\n'
+            f"<!-- https://github.com/o/r/commit/{HEAD} -->\n")
+    assert analysed_commit(body) == HEAD
+
+
+def test_no_marker_means_unknown_commit():
+    assert analysed_commit(SUMMARY) is None
+
+
+def test_fresh_only_when_qodo_analysed_the_current_head():
+    old_review_updated_late = f"{SUMMARY}\n<!-- https://github.com/o/r/commit/{OLD} -->"
+    assert not is_fresh(old_review_updated_late, HEAD)  # timestamp no longer matters
+    assert is_fresh(f"{SUMMARY}\n<!-- https://github.com/o/r/commit/{HEAD} -->", HEAD)
+    assert not is_fresh(SUMMARY, HEAD)  # no marker: not proof
+
+
 def test_zero_bugs_means_no_items():
     assert parse_summary(NO_BUGS) == {"count": 0, "items": []}
 
@@ -131,7 +194,3 @@ def test_not_a_qodo_review():
     assert parse_summary("<h3>PR Summary by Qodo</h3> …")["count"] is None
 
 
-def test_only_a_review_updated_after_the_commit_counts_as_fresh():
-    commit = "2026-11-17T10:00:00+00:00"
-    assert is_fresh("2026-11-17T10:04:00Z", commit)
-    assert not is_fresh("2026-11-17T09:59:00Z", commit)

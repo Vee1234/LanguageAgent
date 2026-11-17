@@ -1,7 +1,10 @@
 """Fetch Qodo's code review for a PR, waiting for the analysis of the latest commit to finish.
 
 Usage (from the repo root):
-    python3 scripts/qodo_review.py [--pr N] [--wait-minutes 10] [--interval 60] [--since ISO]
+    python3 scripts/qodo_review.py [--pr N] [--wait-minutes 10] [--interval 60] [--commit SHA]
+
+"Fresh" means Qodo's summary says it analysed the PR's current head commit (the trailing
+<!-- …/commit/<sha> --> marker Qodo writes), not merely that the comment was edited recently.
 
 Prints one JSON object: {"status", "pr", "count", "updated_at", "min_severity",
 "items": [{"title", "severity", "prompt"}] (at or above --min-severity), "below_threshold": [...]}.
@@ -18,7 +21,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone  # deadline only
 
 MARKER = "Code Review by Qodo"
 _COUNT = re.compile(r"Bugs \((\d+)\)")
@@ -27,9 +30,18 @@ _PROMPT = re.compile(r"Agent prompt</summary>.*?```[^\n]*\n(.*?)\n[> ]*```", re.
 # The heading of Qodo's resolved section: match the exact markup, not the phrase, because a finding's
 # own text can say "Resolved findings".
 _RESOLVED_HEADING = re.compile(r"<summary>\s*<strong>\s*Resolved findings\s*</strong>\s*</summary>")
-# Qodo puts one severity badge above each group of findings of that severity.
-_BADGE = re.compile(r"img\.shields\.io/badge/(Critical|High|Medium|Low)-", re.I)
+# Qodo puts one severity badge above each group of findings: an <img> that starts its own line.
+# Anything Qodo quotes inside a finding (its text, code or agent prompt) is on ">"-prefixed lines,
+# so a quoted badge, or quoted markup such as a stray <details>, can never be mistaken for a group.
+_GROUP_BADGE = re.compile(r"^<img\b[^\n]*img\.shields\.io/badge/(Critical|High|Medium|Low)-", re.I | re.M)
+# Qodo ends its summary with an HTML comment naming the commit it analysed.
+_ANALYSED = re.compile(r"<!--\s*https://github\.com/[^/\s]+/[^/\s]+/commit/([0-9a-f]{40})\s*-->")
 SEVERITIES = ["low", "medium", "high", "critical"]
+
+
+def _group_badges(text: str) -> list[tuple[int, str]]:
+    """(position, severity) of Qodo's group-level severity badges."""
+    return [(m.start(), m.group(1).lower()) for m in _GROUP_BADGE.finditer(text)]
 
 
 def _unquote(block: str) -> str:
@@ -54,7 +66,7 @@ def parse_summary(body: str) -> dict:
     # Findings Qodo has marked resolved are listed after the open ones; only open ones are work.
     resolved = _RESOLVED_HEADING.search(body)
     open_part = body[: resolved.start()] if resolved else body
-    badges = [(b.start(), b.group(1).lower()) for b in _BADGE.finditer(open_part)]
+    badges = _group_badges(open_part)
     starts = list(_ITEM.finditer(open_part))
     items = []
     for i, match in enumerate(starts):
@@ -76,13 +88,16 @@ def blocking(items: list[dict], min_severity: str = "medium") -> list[dict]:
     return [i for i in items if i["severity"] not in SEVERITIES or SEVERITIES.index(i["severity"]) >= floor]
 
 
-def _parse_time(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+def analysed_commit(body: str) -> str | None:
+    """The commit Qodo says this review analysed (its last trailing marker), or None if absent."""
+    found = _ANALYSED.findall(body)
+    return found[-1] if found else None
 
 
-def is_fresh(updated_at: str, since: str) -> bool:
-    """True when the review was updated after `since` (the commit it should have analysed)."""
-    return _parse_time(updated_at) > _parse_time(since)
+def is_fresh(body: str, head_sha: str) -> bool:
+    """True only when Qodo's review names the PR's current head as the analysed commit.
+    A recent edit time is not proof, and a review without the marker is never fresh."""
+    return analysed_commit(body) == head_sha
 
 
 def _run(*cmd: str) -> str:
@@ -102,7 +117,7 @@ def _latest_review(repo: str, pr: int) -> dict | None:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--pr", type=int, help="PR number (default: the current branch's PR)")
-    p.add_argument("--since", help="only accept a review updated after this ISO time (default: HEAD's commit time)")
+    p.add_argument("--commit", help="wait for Qodo's review of this full SHA (default: the PR's head commit)")
     p.add_argument("--wait-minutes", type=float, default=10)
     p.add_argument("--interval", type=float, default=60, help="seconds between checks")
     p.add_argument("--min-severity", choices=SEVERITIES, default="medium",
@@ -111,23 +126,25 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = _run("gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
     pr = args.pr or int(_run("gh", "pr", "view", "--json", "number", "-q", ".number"))
-    since = args.since or _run("git", "log", "-1", "--format=%cI")
+    head = args.commit or _run("gh", "pr", "view", str(pr), "--json", "headRefOid", "-q", ".headRefOid")
     deadline = datetime.now(timezone.utc) + timedelta(minutes=args.wait_minutes)
 
     while True:
         comment = _latest_review(repo, pr)
-        if comment and is_fresh(comment["updated_at"], since):
+        if comment and is_fresh(comment["body"], head):
             review = parse_summary(comment["body"])
             if review["count"] is not None:
                 todo = blocking(review["items"], args.min_severity)
                 below = [i for i in review["items"] if i not in todo]
-                print(json.dumps({"status": "ready" if todo else "no_items", "pr": pr,
+                print(json.dumps({"status": "ready" if todo else "no_items", "pr": pr, "commit": head,
                                   "updated_at": comment["updated_at"], "count": review["count"],
                                   "min_severity": args.min_severity, "items": todo,
                                   "below_threshold": below}, ensure_ascii=False, indent=2))
                 return 0 if todo else 3
         if datetime.now(timezone.utc) >= deadline:
-            print(json.dumps({"status": "timeout", "pr": pr, "since": since, "count": None, "items": []}))
+            last = analysed_commit(comment["body"]) if comment else None
+            print(json.dumps({"status": "timeout", "pr": pr, "waiting_for": head, "last_analysed": last,
+                              "count": None, "items": []}))
             return 4
         time.sleep(args.interval)
 
