@@ -5,7 +5,8 @@
 Knowing a word means knowing more than its translation. It means knowing how formal it
 is, what it implies, where it has been used, and when a native speaker would choose it.
 Language learning should build that depth, then carry it into real reading and
-conversation.
+conversation. It should make learning a language fun, accessible and immersive, and save language
+learners time.
 
 ## Mission
 
