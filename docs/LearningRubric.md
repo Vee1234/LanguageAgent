@@ -39,7 +39,7 @@ Nielsen's 10 usability heuristics:
 9. Help users recognise, diagnose and recover from errors
 10. Help and documentation
 
-## Step C: adjustments, applied in this order
+## Step C: adjustments, applied in this order (product bugs only; a workflow bug stays at 1 even if Q2 would be yes)
 1. **Cap:** if Q3 and Q4 are both "no" (nothing new, nothing to decide), the score is **at most 2**.
 2. **Floor:** if Q2 is "yes", the score is **at least 4**. Multi-user and data-safety bugs always go to the user, and this beats the cap.
 3. The score never exceeds **5**.
