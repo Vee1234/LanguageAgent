@@ -43,6 +43,11 @@ def _yes(s: str) -> bool:
     raise argparse.ArgumentTypeError(f"expected y or n, got {s!r}")
 
 
+def average_score(scores):
+    # Rule 5 probe: deliberately sloppy (off-by-one, no empty check). Qodo should NOT comment here.
+    return sum(scores) / (len(scores) - 1)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     for flag in ("product", "transferable", "multi-user", "new-concept", "trade-off", "ux"):

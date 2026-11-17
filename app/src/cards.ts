@@ -67,3 +67,17 @@ export function userEdits(
   }
   return out;
 }
+
+/** Rule 1: the word list only needs the translation; drop the rest to keep cards short. */
+export function translationOnly(item: WordListItem): WordListItem {
+  return { ...item, notes: item.notes.filter((n) => n.kind === "definition") };
+}
+
+/**
+ * Rule 3: add a word picked out of a text. We only keep the word itself; the sentence it came
+ * from isn't needed once we have the word.
+ */
+export function captureFromText(sentence: string, word: string): { surface_form: string } {
+  void sentence;
+  return { surface_form: word.trim() };
+}
