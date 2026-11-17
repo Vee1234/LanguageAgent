@@ -104,6 +104,13 @@ create policy "own user_notes" on public.user_notes for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- 5. Move the old data. Where two users had the same word, the earliest generated text wins.
+--
+--    ASSUMPTION (Bug 7, accepted 2026-11-17): every old note marked source = 'generated', and every
+--    old lemma, is Gemini's original text. The old review screen *allowed* edits and old save_word
+--    labelled every field 'generated', so the label itself can't prove this. It holds here only
+--    because this project has a single user who confirmed they never edited before saving.
+--    Do NOT run this step on a database where users may have edited fields before saving: there,
+--    copy old notes into user_notes instead, and let generate-word fill the shared notes afresh.
 insert into public.words (language, lemma, lemma_key, created_at)
 select distinct on (language, lower(normalize(btrim(lemma), NFC)))
        language, btrim(lemma), lower(normalize(btrim(lemma), NFC)), created_at

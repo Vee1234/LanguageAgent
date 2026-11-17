@@ -245,7 +245,7 @@ Option 2, the user's choice. This function writes shared content and spends the 
 > **L5 (approved by user 2026-11-17):** Every server path that uses elevated (service-role) access must first establish who the caller is and refuse anyone who isn't a real signed-in user; a validly signed token alone is not proof of a user.
 
 ## Bug 7: One user's saved edits become everyone's card text
-**Source:** Qodo review (PR #2) · **Severity:** High · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** High · **Learning score:** 5/5 (together) · **Status:** ✅ worked through together; accepted as safe for this deployment
 
 ### Learning score
 Gate: product (data migration). Q1 y: provenance of data during migrations is universal. Q2 y: personal data becomes shared. Q3 y: new. Q4 y: several ways to place old values. Q5 n.
@@ -256,6 +256,19 @@ Gate: product (data migration). Q1 y: provenance of data during migrations is un
 **Concept: a label is only as trustworthy as the code that wrote it (data provenance).** Picture a form that ticks a "verified" box automatically on submit: every row says verified, so the box tells you nothing. When you migrate data, ask "what could have written this value?", not "what does its label say?".
 
 **Guiding question:** Looking at how the old `AddWord` and `save_word` wrote notes, which old rows can you actually be sure came from Gemini untouched, and given that, where should each old value end up after the migration?
+
+### Worked through together
+- **User's first idea:** version cards, keeping a base card plus each user's edited variant. That is the right model for edits *from now on*, and the new schema already has it: shared `notes` are the base, `user_notes` hold each user's changed fields. But it needs to know which old values are base and which are edits, and the old data can't say.
+- **User's answer:** they are the only user and never edited a field before saving, so every old note and lemma is Gemini's original.
+
+### Decision
+**Accepted for this deployment; no code change.** The migration only has to be correct for the data that actually exists, and the user's knowledge settles that. Because the label can't prove it, the assumption is now written into `supabase/migrations/20261117000000_shared_cache.sql` (step 5): it holds only on a database where nobody edited before saving, and says what to do otherwise (copy old notes into `user_notes`, and let `generate-word` refill the shared notes).
+
+### Biggest weakness
+It rests on memory, not on evidence in the data. If any old row *was* edited, that text becomes shared once the migration runs. The risk is limited to a single user's handful of words, which the user can check in the Table Editor before deploying.
+
+### Lesson learned
+None: the logic wasn't wrong; a limit on where it's safe is now documented. (Related principle: when code relies on knowledge outside the data, write that assumption where the code lives.)
 
 ## Bug 8: The lesson guard (commit hook) isn't in the PR
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 1/5 (agent)
