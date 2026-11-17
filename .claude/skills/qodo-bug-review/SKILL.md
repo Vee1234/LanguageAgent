@@ -1,6 +1,6 @@
 ---
 name: qodo-bug-review
-description: Work through a Qodo bug review for this repo — fetch it from the PR (waiting for Qodo's analysis after a push) or take a pasted one, find each root cause, brainstorm and pick a fix, implement it test-first, propose a lesson for LessonsLearned.md, write BugReview/Day X Bug Review.md, and loop until Qodo reports no open items. Runs only when the user types /qodo-bug-review.
+description: Work through a Qodo bug review for this repo — fetch it from the PR (waiting for Qodo's analysis after a push) or take a pasted one, find each root cause, score how much the user would learn from it (fix 1–3 alone, hand 4–5 to the user), brainstorm and pick a fix, implement it test-first, propose a lesson for LessonsLearned.md, write BugReview/Day X Bug Review.md, and loop until Qodo reports no open items. Runs only when the user types /qodo-bug-review.
 disable-model-invocation: true
 ---
 
@@ -29,6 +29,19 @@ If none is given, compute `Day = (today − 2026-11-16) + 1` and state it in one
 - Reproduce the reviewer's claim from the code: open the exact files and lines, and trace the data/control flow back to where the wrong behaviour **originates** — not just where it shows up.
 - If the claim is wrong or already fixed, say so with evidence (file:line, a test, or output), record it as "Not a bug" in the write-up, and skip to step 7. **No lesson is added for a non-bug.**
 - Record: file:line of the root cause, a one-paragraph explanation, and a concrete failure scenario (input/state → wrong result).
+
+## 1b. Score it for learning (docs/LearningRubric.md)
+Read `docs/LearningRubric.md`, then answer its gate and Q1–Q5 for this finding, **each with a one-line reason** (Q3: check `LessonsLearned.md` and "Concepts covered"; Q5: name the Nielsen heuristic number). Compute the score, never estimate it:
+```sh
+python3 scripts/learning_score.py --product y|n --transferable y|n --multi-user y|n --new-concept y|n --trade-off y|n --ux y|n
+```
+- **`"handled_by": "agent"` (score 1–3):** continue with steps 2–8 on your own.
+- **`"handled_by": "together"` (score 4–5):** **do not fix it, and do not write the solution.** Prepare a *learning brief* instead:
+  - the root cause, with file:line and the failure scenario
+  - the one concept it teaches, explained away from this code with a short generic example
+  - **one** guiding question that makes the user apply it here
+
+  Follow the Socratic approach in the user's CLAUDE.md. Then move on to the next finding. These are worked through with the user after the loop, and the full steps 2–8 run then.
 
 ## 2. Brainstorm at least 2 solutions
 First, run the `brainstorm` skill (read `LessonsLearned.md` and check each option against past lessons).
@@ -59,6 +72,7 @@ It must be strategic, a rule that informs future design decisions, not a descrip
 - **Ask the user to approve the exact sentence** before it becomes binding. Append it to `LessonsLearned.md` marked `⏳ pending approval`; change the marker to `✅ approved by user <date>` only after they confirm in conversation. If they reject or reword it, use their version or remove it.
 
 ## 7. Write the write-up
+For a **together** finding during the loop, write only the header, the learning score and the learning brief, with status "⏳ to work through with the user"; complete the rest once it's done together.
 File: `BugReview/Day X Bug Review.md` (e.g. `BugReview/Day 1 Bug Review.md`). If the file exists, append a new bug section; don't overwrite.
 Use this structure:
 
@@ -66,7 +80,10 @@ Use this structure:
 # Day X Bug Review
 
 ## Bug N: <short title>
-**Source:** Qodo review (<PR / link if given>) · **Severity:** <from the review, or your assessment>
+**Source:** Qodo review (<PR / link if given>) · **Severity:** <from the review, or your assessment> · **Learning score:** <n>/5 (<agent | together>)
+
+### Learning score
+Gate: <product | workflow> — <reason>. Q1 <y/n> — <reason>. Q2 … Q3 … Q4 … Q5 <y/n, heuristic #> — <reason>.
 
 ### Reported issue
 <what Qodo said, briefly, in your own words>
@@ -94,11 +111,13 @@ Use this structure:
 ```
 
 ## 8. Finish
-Reply with: each bug's root cause (file:line), chosen fix, the **proposed** lesson with an explicit request for approval, and the paths of the changed files plus the write-up.
+Reply with: each bug's root cause (file:line) and learning score; for agent-fixed bugs the chosen fix; for together bugs the learning brief (concept + guiding question, no fix); the **proposed** lesson for each agent-fixed bug with an explicit request for approval, and the paths of the changed files plus the write-up.
 The Stop hook then reruns the tests and handles commit, push and PR, except for `LessonsLearned.md`: **never stage, commit or push changes to it until the user has confirmed them.**
 
 ## 9. Loop until Qodo is clean
 This loop runs only inside a `/qodo-bug-review` run the user started; a push on its own never starts a review.
 After this run's fixes are committed and pushed, go back to step 0b and fetch again. The script's default `--since` is the new HEAD, so it waits for Qodo to analyse the push.
-- Stop as soon as the fetch returns `no_items`, meaning **no high or medium findings are left**: this is the early exit. Low findings don't keep the loop going.
+- Stop as soon as no **high or medium** finding scored **1–3** is left to fix: this is the early exit. That's `no_items`, or a round where every high/medium item is either scored 4–5 (together) or already handled. Low findings and together findings don't keep the loop going.
+- Score each finding once: keep a together finding's score across rounds, and don't re-brief it.
+- At the end, list the **together** findings (score, title, guiding question), highest severity first, and offer to start on the first one. When one is finished together, add its concept to "Concepts covered" in `docs/LearningRubric.md`.
 - Also stop after **3 rounds** in one session, or if a round returns only items you have already handled, and report what's still open. Never loop indefinitely.
