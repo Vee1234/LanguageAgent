@@ -242,7 +242,7 @@ Option 2, the user's choice. This function writes shared content and spends the 
 - **Not deployed:** part of the shared-cache release, still on hold.
 
 ### Lesson learned
-> **L5 (proposed, awaiting your approval):** Every server path that uses elevated (service-role) access must first establish who the caller is and refuse anyone who isn't a real signed-in user; a validly signed token alone is not proof of a user.
+> **L5 (approved by user 2026-11-17):** Every server path that uses elevated (service-role) access must first establish who the caller is and refuse anyone who isn't a real signed-in user; a validly signed token alone is not proof of a user.
 
 ## Bug 7: One user's saved edits become everyone's card text
 **Source:** Qodo review (PR #2) · **Severity:** High · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
