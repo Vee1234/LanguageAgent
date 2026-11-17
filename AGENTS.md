@@ -75,52 +75,57 @@ Every new feature or behaviour change follows red → green → refactor:
 
 Docs-only and config-only changes don't need tests.
 
-## Project rules
+## Five review standards
 
-### 1. The More-Than-a-Translation Rule: a card is never just a translation
-**Applies to:** card generation (`supabase/functions/generate-word/`, `cardGenerators/`, `cardModels/`)
-and the card screens in `app/src/`.
-Every generated card must include the word's register, its connotations (`emotional_colour`) and
-at least one example sentence, alongside the definition. If one of these is missing, the card shows it as missing. It's
-never quietly filled in or left out.
-**Why:** this is the vision. Knowing a word means knowing how formal it is, what it implies and when a
-native speaker would choose it, and a bare translation teaches none of that.
+1. **More than a translation: a card is never just a translation.**
+   - **Applies to:** card generation (`supabase/functions/generate-word/**`, `cardGenerators/**`,
+     `cardModels/**`) and the card screens in `app/src/**`.
+   - **Rule:** Every generated card must include the word's definition, register, connotations
+     (`emotional_colour`) and at least one example sentence. If one of these is missing, the card
+     must show it as missing. Never quietly fill it in with a default or leave it out.
+   - **Why:** This is the app's vision. Knowing a word means knowing how formal it is, what it
+     implies and when a native speaker would choose it, and a bare translation teaches none of that.
 
-### 2. The Real-World Rule: examples sound like real use, not a textbook
-**Applies to:** example sentences, notable uses and lyrics, in the Gemini prompts
-(`supabase/functions/generate-word/logic.ts`, `cardGenerators/`) and in any future feature that adds
-examples.
-Where possible, examples come from how the word is really used: song lyrics, real texts and notable
-uses. Generated examples must sound like something a native speaker would actually say, in the
-register the card gives. Invented textbook sentences ("The cat is on the table") don't count.
-**Why:** immersion. The aim is to carry words into real reading and conversation, so learners need to
-meet a word the way they'll meet it in the wild.
+2. **Real-world examples: examples sound like real use, not a textbook.**
+   - **Applies to:** Gemini prompts and output checks (`supabase/functions/generate-word/logic.ts`,
+     `cardGenerators/**`) and any feature that adds example sentences, notable uses or lyrics.
+   - **Rule:** Prefer examples from how the word is really used: song lyrics, real texts and notable
+     uses. Generated examples must sound like something a native speaker would actually say, in the
+     register the card gives. Reject invented textbook sentences ("The cat is on the table").
+   - **Why:** Immersion. Learners need to meet a word the way they'll meet it in real reading and
+     conversation.
 
-### 3. The Where-I-Met-It Rule: a word keeps the context it came from
-**Applies to:** word capture (adding a word by typing it, from a screenshot or from a text) and the
-schema in `supabase/migrations/`.
-When a word is captured from a screenshot or a text, the sentence it appeared in is saved with the
-learner's card and shown on it. Code that adds a word from a source must not drop that context.
-**Why:** a word is easier to remember when it's tied to where you found it. Your own encounter with a
-word is the most immersive example the app can show.
+3. **Where I met it: a captured word keeps the context it came from.**
+   - **Applies to:** word capture (typed, from a screenshot or from a text) in `app/src/**` and
+     `supabase/functions/**`, and the schema in `supabase/migrations/**`.
+   - **Rule:** When a word is captured from a screenshot or a text, save the sentence it appeared in
+     with the learner's card and show it on the card. Code that adds a word from a source must not
+     drop that context.
+   - **Why:** A word is easier to remember when it's tied to where you found it. The learner's own
+     encounter with a word is the most immersive example the app can show.
 
-### 4. The No-Untested-Behaviour Rule: every behaviour change ships with a test that fails without it
-**Applies to:** all code in `app/src/`, `supabase/functions/`, and the Python modules and `tests/`.
-A PR that changes behaviour must include a test that fails without the change and passes with it (see
-*Development workflow* above). A fix for a reported bug includes a regression test that reproduces
-that bug.
-**Why:** a test that was red first proves the change does what it claims, and it keeps a fixed bug
-from coming back.
+4. **No untested behaviour: every behaviour change ships with a test that fails without it.**
+   - **Applies to:** `app/src/**`, `supabase/functions/**`, the Python modules and `tests/**`.
+   - **Rule:** A PR that changes behaviour must include a test that fails without the change and
+     passes with it (see *Development workflow* above). A bug fix includes a regression test that
+     reproduces the bug. Docs-only and config-only changes are exempt.
+   - **Why:** A test that was red first proves the change does what it claims, and it keeps a fixed
+     bug from coming back.
 
-## Review scope
+5. **Product only: don't review the personal learning and development workflow.**
+   - **Applies to:** `.claude/**`, `BugReview/**`, `LessonsLearned.md`, `docs/WorkflowLessons.md`,
+     `docs/LearningRubric.md`, `scripts/qodo_review.py`, `scripts/learning_score.py`,
+     `tests/test_qodo_review.py`, `tests/test_learning_score.py`, `tests/test_feature_commit_hook.py`.
+   - **Rule:** Don't leave review comments, suggestions or findings on these files. Focus reviews on
+     the product: `app/`, `supabase/` and the Python card modules.
+   - **Why:** These files are the maintainer's own tooling for learning and building (skills, hooks,
+     bug-review write-ups and lessons), not part of the app. Comments on them are noise.
 
-**Don't leave review comments on the development and learning workflow.** It's personal tooling
-for how I learn and build, not part of the product:
+## Most opinionated rule for Qodo Day 2
 
-- `.claude/` (skills, hooks, settings)
-- `BugReview/`
-- `LessonsLearned.md`, `docs/WorkflowLessons.md`, `docs/LearningRubric.md`
-- `scripts/qodo_review.py`, `scripts/learning_score.py`
-- `tests/test_qodo_review.py`, `tests/test_learning_score.py`, `tests/test_feature_commit_hook.py`
+> **More than a translation:** a card is never just a translation. Every card carries the word's
+> register, connotations and a real example, and anything missing looks missing.
 
-Focus reviews on the product: `app/`, `supabase/`, and the Python card modules.
+**Why this exists:** the whole app is built on the idea that knowing a word means knowing how it is
+lived: how formal it is, what it implies and when a native speaker would choose it. A flashcard app
+that shows only a translation would be easier to build, and it would teach the wrong thing.
