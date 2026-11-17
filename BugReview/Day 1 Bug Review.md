@@ -595,7 +595,7 @@ It's a convention: a new piece of per-request state (e.g. a "retrying" flag) wou
 - **Refactor:** none needed.
 
 ### Lesson learned
-> **L10 (proposed, awaiting your approval):** Whoever abandons in-flight async work takes over the state it owned: when a newer request supersedes an older one, reset that request's flags at the moment of superseding.
+> **L10 (approved by user 2026-11-17):** Whoever abandons in-flight async work takes over the state it owned: when a newer request supersedes an older one, reset that request's flags at the moment of superseding.
 
 ## Bug 17: An old review can pass the freshness check
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 1/5 (agent)
