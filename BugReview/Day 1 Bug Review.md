@@ -487,7 +487,7 @@ Older words show "Not set yet" until the backfill exists, and the review screen 
 > **L8 (approved by user 2026-11-17):** A missing value must look missing: never let a control's default stand in for data nobody chose, and never save it as if someone had.
 
 ## Bug 14: Personal notes can't be reverted
-**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ✅ worked through together; deferred (product decision)
 
 ### Learning score
 Gate: product. Q1 y: update semantics (unchanged, changed, removed). Q2 y: your own data is wrongly kept after you try to remove it. Q3 y. Q4 y: a delete list, explicit nulls, or "reset to shared" actions. Q5 y (#3, user control and freedom).
@@ -498,6 +498,23 @@ Gate: product. Q1 y: update semantics (unchanged, changed, removed). Q2 y: your 
 **Concept: "not mentioned" isn't "delete".** An update request needs three states for each field: *unchanged*, *changed to X*, and *remove my value*. In web APIs, a PATCH that **omits** a field leaves it alone, while one that sends `null` for it clears it. If your request can only say "here are the changes", there's no way to say "undo".
 
 **Guiding question:** How could the save request tell the database "remove my override for this field", as distinct from "I didn't touch this field"?
+
+### Worked through together
+- **Clarified the scenario:** deleting a field *before* the first save is fine. The gap is *after* saving an override: re-adding the word shows the shared text, Save sends nothing for an unchanged or cleared field, and the override stays forever.
+- **User's idea:** a UI to view the base (shared) card next to your own. That gives visibility, but viewing alone doesn't delete the `user_notes` row.
+- **What's happening:** the save request can only say "set field X to this" (and leaving a field out means "unchanged"), so it can't express "remove my version of X". The usual fixes are an explicit `null` per field, or a separate "reset" list; either way `save_card` deletes those `user_notes` rows in the same transaction. Principle: an update needs three states per field (unchanged, set, removed), and "not mentioned" must never be the only way to say "remove".
+- **The user questioned whether users want this at all.** Reasons were weighed: the shared version improves over time and an old override hides that, notes get outgrown, and mistakes can't be removed.
+
+### Decision
+**Deferred: a product decision** ("not sure yet what a user would want"). Requirement: the base/override relationship must stay stored so the feature can be added later. **Already true, with no schema change needed:**
+- shared `notes` is unique on `(word_id, kind)`; `user_notes` is unique on `(user_id, word_id, kind)`;
+- an override's base is always the `notes` row with the same `word_id` and `kind`; the base is never overwritten (saves only write `user_notes`);
+- the app already loads both and shows the override over the base (`app/src/wordsPage.ts:14`, `app/src/cards.ts:39`).
+
+The later feature is a "Use the shared version" button (with the user's view-the-base UI) plus deleting that `user_notes` row; it's on the roadmap.
+
+### Lesson learned
+None: deferred, not fixed. The three-states principle is recorded above and in Concepts covered.
 
 ## Bug 15: Re-saving edits leaves the word list stale
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 4/5 (together) · **Status:** ⏳ to work through with the user
