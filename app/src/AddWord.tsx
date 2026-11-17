@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import { CARD_FIELDS, supabase, type FieldKey, type GeneratedCard } from "./supabase";
+import { CARD_FIELDS, REGISTERS, supabase, type FieldKey, type GeneratedCard } from "./supabase";
+import { userEdits } from "./cards";
 
 type Step = "word" | "review" | "saved";
 
@@ -17,12 +18,17 @@ async function errorMessage(err: unknown): Promise<string> {
   return err instanceof Error ? err.message : String(err);
 }
 
-export default function AddWord() {
+type Props = { onSaved: () => void; onViewWords: () => void };
+
+export default function AddWord({ onSaved, onViewWords }: Props) {
   const [step, setStep] = useState<Step>("word");
   const [word, setWord] = useState("");
   const [language, setLanguage] = useState(() => localStorage.getItem("language") ?? "French");
   const [card, setCard] = useState<GeneratedCard | null>(null);
+  // Shared content as generated; edits are diffed against it and saved as the user's own notes.
+  const [original, setOriginal] = useState<GeneratedCard | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savedMessage, setSavedMessage] = useState<"new" | "changes" | "already">("new");
   const [error, setError] = useState<string | null>(null);
 
   async function generate(e: FormEvent) {
@@ -36,37 +42,42 @@ export default function AddWord() {
     setBusy(false);
     if (error || !data) return setError(await errorMessage(error ?? new Error("No response")));
     setCard(data);
+    setOriginal(data);
     setStep("review");
   }
 
   async function save() {
-    if (!card) return;
+    if (!card || !original) return;
     setBusy(true);
     setError(null);
-    const fields = Object.fromEntries(CARD_FIELDS.map(({ key }) => [key, card[key]]));
-    const { error } = await supabase.rpc("save_word", {
-      p_language: card.language,
+    const pick = (c: GeneratedCard) => Object.fromEntries(CARD_FIELDS.map(({ key }) => [key, c[key] ?? ""]));
+    const edits = userEdits(pick(original), pick(card));
+    const { data: added, error } = await supabase.rpc("save_card", {
+      p_word_id: card.word_id,
       p_surface_form: card.word,
-      p_lemma: card.lemma,
-      p_fields: fields,
+      p_user_notes: edits,
     });
     setBusy(false);
-    if (error) {
-      return setError(
-        error.code === "23505" ? `“${card.lemma}” is already in your ${card.language} words.` : error.message,
-      );
-    }
+    if (error) return setError(error.message);
+    // Bug 15: 0 means "no new card" (the word was already yours), not failure. The save still
+    // succeeded, so always show Saved and refresh the list; only the message depends on the count.
+    const changed = Object.keys(edits).length > 0;
+    setSavedMessage(
+      added !== 0 ? "new" : changed ? "changes" : "already",
+    );
     setStep("saved");
+    onSaved();
   }
 
   function startOver() {
     setWord("");
     setCard(null);
+    setOriginal(null);
     setError(null);
     setStep("word");
   }
 
-  const edit = (key: FieldKey | "lemma", value: string) =>
+  const edit = (key: FieldKey, value: string) =>
     setCard((c) => (c ? { ...c, [key]: value } : c));
 
   return (
@@ -85,7 +96,7 @@ export default function AddWord() {
           <label>
             Word
             <input autoFocus autoCapitalize="off" autoCorrect="off" spellCheck={false}
-              required maxLength={100} value={word} placeholder="e.g. dépaysement"
+              required maxLength={60} value={word} placeholder="e.g. dépaysement"
               onChange={(e) => setWord(e.target.value)} />
           </label>
           <label>
@@ -105,23 +116,31 @@ export default function AddWord() {
         <section className="panel">
           <p className="eyebrow">{card.language}</p>
           <h1 className="headword">{card.word}</h1>
-          <label className="lemma">
-            Dictionary form
-            <input value={card.lemma} onChange={(e) => edit("lemma", e.target.value)} />
-          </label>
+          {card.lemma !== card.word && (
+            <p className="muted lemma">Dictionary form: <strong>{card.lemma}</strong></p>
+          )}
 
           {CARD_FIELDS.map(({ key, label }) => (
             <label key={key} className="field">
               {label}
-              <textarea rows={2} value={card[key]} placeholder="None found — add your own"
-                onChange={(e) => edit(key, e.target.value)} />
+              {key === "register" ? (
+                <select value={card.register ?? ""} onChange={(e) => edit(key, e.target.value)}>
+                  {/* A missing register must look missing (Bug 13): without this option the browser
+                      silently shows the first register, as if it had been chosen. */}
+                  {!original?.register && <option value="">Not set yet</option>}
+                  {REGISTERS.map((r) => <option key={r}>{r}</option>)}
+                </select>
+              ) : (
+                <textarea rows={2} value={card[key] ?? ""} placeholder="None found — add your own"
+                  onChange={(e) => edit(key, e.target.value)} />
+              )}
             </label>
           ))}
 
           {error && <p className="error" role="alert">{error}</p>}
           <div className="row">
             <button className="secondary" onClick={startOver} disabled={busy}>Discard</button>
-            <button className="primary" onClick={save} disabled={busy || !card.lemma.trim()}>
+            <button className="primary" onClick={save} disabled={busy}>
               {busy ? "Saving…" : "Save card"}
             </button>
           </div>
@@ -132,9 +151,20 @@ export default function AddWord() {
         <section className="panel center">
           <h1>Saved</h1>
           <p>
-            <strong>{card.word}</strong> is in your {card.language} words, and its card is due for review now.
+            {savedMessage === "new" && (
+              <><strong>{card.word}</strong> is in your {card.language} words, and its card is due for review now.</>
+            )}
+            {savedMessage === "changes" && (
+              <>Your changes to <strong>{card.word}</strong> are saved. It was already in your {card.language} words.</>
+            )}
+            {savedMessage === "already" && (
+              <><strong>{card.word}</strong> is already in your {card.language} words. Nothing needed saving.</>
+            )}
           </p>
-          <button className="primary" onClick={startOver}>Add another word</button>
+          <div className="row">
+            <button className="secondary" onClick={onViewWords}>See My words</button>
+            <button className="primary" onClick={startOver}>Add another word</button>
+          </div>
         </section>
       )}
     </>

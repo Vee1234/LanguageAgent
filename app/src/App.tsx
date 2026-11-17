@@ -1,12 +1,18 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { configError, supabase } from "./supabase";
 import Login from "./Login";
 import AddWord from "./AddWord";
+import Words from "./Words";
+
+type Tab = "add" | "words";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("add");
+  // Bumped after every save so My words re-reads from the database.
+  const [wordsVersion, setWordsVersion] = useState(0);
 
   useEffect(() => {
     if (configError) return setLoading(false);
@@ -37,7 +43,33 @@ export default function App() {
           </button>
         )}
       </header>
-      {session ? <AddWord /> : <Login />}
+      {session ? (
+        // Keyed by user: a different user remounts everything below, dropping the previous
+        // user's list, draft card and in-flight requests. Keyed by user id, not the session,
+        // so routine token refreshes don't remount.
+        <Fragment key={session.user.id}>
+          <nav className="tabs" aria-label="Sections">
+            <button aria-current={tab === "add" ? "page" : undefined} onClick={() => setTab("add")}>
+              Add word
+            </button>
+            <button aria-current={tab === "words" ? "page" : undefined} onClick={() => setTab("words")}>
+              My words
+            </button>
+          </nav>
+          {/* Both stay mounted, so My words is already up to date when you switch to it. */}
+          <div hidden={tab !== "add"}>
+            <AddWord
+              onSaved={() => setWordsVersion((v) => v + 1)}
+              onViewWords={() => setTab("words")}
+            />
+          </div>
+          <div hidden={tab !== "words"}>
+            <Words version={wordsVersion} />
+          </div>
+        </Fragment>
+      ) : (
+        <Login />
+      )}
     </main>
   );
 }
