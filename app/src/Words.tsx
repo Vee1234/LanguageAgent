@@ -1,15 +1,6 @@
-import { useEffect, useState } from "react";
-import { CARD_FIELDS, supabase } from "./supabase";
-
-type Note = { kind: string; body: string };
-type Word = {
-  id: string;
-  surface_form: string;
-  lemma: string;
-  language: string;
-  created_at: string;
-  notes: Note[];
-};
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CARD_FIELDS } from "./supabase";
+import { fetchWordsPage, mergePages, type Cursor, type Word } from "./wordsPage";
 
 const LABELS: Record<string, string> = {
   ...Object.fromEntries(CARD_FIELDS.map(({ key, label }) => [key, label])),
@@ -17,31 +8,83 @@ const LABELS: Record<string, string> = {
 };
 const ORDER = [...CARD_FIELDS.map((f) => f.key as string), "user"];
 
-/** `version` changes after every save; each change re-reads the list from the database. */
+/**
+ * The user's words, newest first, loaded a page at a time; scrolling to the bottom (or
+ * "Load more") fetches the next page. `version` changes after every save and restarts from page one.
+ */
 export default function Words({ version }: { version: number }) {
   const [words, setWords] = useState<Word[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [cursor, setCursor] = useState<Cursor | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null); // first page failed: nothing to show
+  const [moreError, setMoreError] = useState<string | null>(null); // a later page failed: keep the list
+  const [attempt, setAttempt] = useState(0); // bumped by Retry to rerun the first-page read
   const [openId, setOpenId] = useState<string | null>(null);
+  // Bumped on every restart (and on unmount); a response from an older generation is ignored.
+  // App also remounts this list when the signed-in user changes.
+  const generation = useRef(0);
+  const sentinel = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Ignore a slow response once a newer read has started or this list has unmounted
-    // (App remounts it when the signed-in user changes).
-    let current = true;
-    supabase
-      .from("words")
-      .select("id, surface_form, lemma, language, created_at, notes(kind, body)")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (!current) return;
-        setError(error ? error.message : null);
-        if (!error) setWords(data as Word[]);
-      });
+    const gen = ++generation.current;
+    setWords(null);
+    setError(null);
+    setMoreError(null);
+    fetchWordsPage(null).then(
+      (page) => {
+        if (gen !== generation.current) return;
+        setWords(page.rows);
+        setTotal(page.total ?? page.rows.length);
+        setCursor(page.cursor);
+      },
+      (err: Error) => gen === generation.current && setError(err.message),
+    );
     return () => {
-      current = false;
+      generation.current++;
     };
-  }, [version]);
+  }, [version, attempt]);
 
-  if (error) return <p className="error" role="alert">{error}</p>;
+  const loadMore = useCallback(() => {
+    if (!cursor || loadingMore) return;
+    const gen = generation.current;
+    setLoadingMore(true);
+    setMoreError(null);
+    fetchWordsPage(cursor).then(
+      (page) => {
+        if (gen !== generation.current) return;
+        setWords((shown) => mergePages(shown ?? [], page.rows));
+        setCursor(page.cursor);
+        setLoadingMore(false);
+      },
+      (err: Error) => {
+        if (gen !== generation.current) return;
+        setMoreError(err.message);
+        setLoadingMore(false);
+      },
+    );
+  }, [cursor, loadingMore]);
+
+  // Load the next page when the bottom of the list scrolls into view (not after a failure:
+  // that waits for Retry, so a broken connection isn't hammered while the bottom stays visible).
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !cursor || moreError || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore();
+    }, { rootMargin: "200px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [cursor, loadMore, moreError, words]);
+
+  if (error) {
+    return (
+      <section className="panel center">
+        <p className="error" role="alert">{error}</p>
+        <button className="secondary" onClick={() => setAttempt((a) => a + 1)}>Retry</button>
+      </section>
+    );
+  }
   if (!words) return <p className="muted" aria-busy="true">Loading your words…</p>;
   if (words.length === 0) {
     return (
@@ -54,7 +97,7 @@ export default function Words({ version }: { version: number }) {
 
   return (
     <section className="list" aria-label="My words">
-      <h1>My words <span className="muted count">{words.length}</span></h1>
+      <h1>My words <span className="muted count">{total}</span></h1>
       {words.map((w) => {
         const open = openId === w.id;
         const notes = [...w.notes].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
@@ -83,6 +126,14 @@ export default function Words({ version }: { version: number }) {
           </article>
         );
       })}
+      {cursor && (
+        <div ref={sentinel} className="load-more">
+          {moreError && <p className="error" role="alert">{moreError}</p>}
+          <button className="secondary" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : moreError ? "Retry" : "Load more"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

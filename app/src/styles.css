@@ -113,3 +113,4 @@ button:disabled { opacity: 0.55; cursor: default; }
 .word-notes { margin: 0; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; }
 .word-notes dt { font-size: 13px; font-weight: 600; color: var(--muted); }
 .word-notes dd { margin: 2px 0 0; font-size: 16px; line-height: 1.45; }
+.load-more { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0 16px; }

@@ -22,11 +22,15 @@ const fake = vi.hoisted(() => {
       },
       signOut: () => Promise.resolve({ error: null }),
     },
-    from: () => ({
-      select: () => ({
-        order: () => new Promise<Result>((resolve) => state.pending.push({ resolve })),
-      }),
-    }),
+    // Every query-builder step returns the builder; awaiting it waits for the test to respond.
+    from: () => {
+      const result = new Promise<Result>((resolve) => state.pending.push({ resolve }));
+      const builder: Record<string, unknown> = {
+        then: (ok: (r: Result) => unknown, fail?: (e: unknown) => unknown) => result.then(ok, fail),
+      };
+      for (const step of ["select", "order", "limit", "or"]) builder[step] = () => builder;
+      return builder;
+    },
   };
   return { state, supabase };
 });
