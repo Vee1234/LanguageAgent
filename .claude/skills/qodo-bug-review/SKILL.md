@@ -1,6 +1,7 @@
 ---
 name: qodo-bug-review
-description: Work through a Qodo bug review for this repo — fetch it from the PR (waiting for Qodo's analysis after a push) or take a pasted one, find each root cause, brainstorm and pick a fix, implement it test-first, propose a lesson for LessonsLearned.md, write BugReview/Day X Bug Review.md, and loop until Qodo reports no open items. Use whenever the user pastes or links a Qodo review or PR, asks to "check Qodo", or says "here's a bug review / Qodo found …".
+description: Work through a Qodo bug review for this repo — fetch it from the PR (waiting for Qodo's analysis after a push) or take a pasted one, find each root cause, brainstorm and pick a fix, implement it test-first, propose a lesson for LessonsLearned.md, write BugReview/Day X Bug Review.md, and loop until Qodo reports no open items. Runs only when the user types /qodo-bug-review.
+disable-model-invocation: true
 ---
 
 # Qodo bug review
@@ -97,6 +98,7 @@ Reply with: each bug's root cause (file:line), chosen fix, the **proposed** less
 The Stop hook then reruns the tests and handles commit, push and PR, except for `LessonsLearned.md`: **never stage, commit or push changes to it until the user has confirmed them.**
 
 ## 9. Loop until Qodo is clean
-After the fixes are committed and pushed, go back to step 0b and fetch again. The script's default `--since` is the new HEAD, so it waits for Qodo to analyse the push.
+This loop runs only inside a `/qodo-bug-review` run the user started; a push on its own never starts a review.
+After this run's fixes are committed and pushed, go back to step 0b and fetch again. The script's default `--since` is the new HEAD, so it waits for Qodo to analyse the push.
 - Stop as soon as the fetch returns `no_items`: this is the early exit.
 - Also stop after **3 rounds** in one session, or if a round returns only items you have already handled, and report what's still open. Never loop indefinitely.
