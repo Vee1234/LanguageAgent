@@ -29,8 +29,8 @@ const generated = {
   lyric: "",
 };
 
-async function generateMaisons() {
-  render(<AddWord onSaved={() => {}} onViewWords={() => {}} />);
+async function generateMaisons(onSaved: () => void = () => {}) {
+  render(<AddWord onSaved={onSaved} onViewWords={() => {}} />);
   fireEvent.change(screen.getByLabelText("Word"), { target: { value: "maisons" } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /generate card/i })));
   await screen.findByText("maisons");
@@ -72,13 +72,31 @@ describe("saving a word from the shared cache", () => {
     expect(screen.getByText("maison")).toBeTruthy();
   });
 
-  it("says so when the word is already in the user's words", async () => {
-    fake.rpc.mockResolvedValue({ data: 0, error: null });
-    await generateMaisons();
+  it("re-saving a word you already have, with edits, counts as a save: Saved screen, list refresh, clear message", async () => {
+    fake.rpc.mockResolvedValue({ data: 0, error: null }); // no new card: it was already yours
+    const onSaved = vi.fn();
+    await generateMaisons(onSaved);
+    fireEvent.change(screen.getByLabelText("Definition"), { target: { value: "Where I live." } });
 
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /save card/i })));
 
-    expect(await screen.findByText(/already in your French words/i)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Saved" })).toBeTruthy();
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    const panel = screen.getByRole("heading", { name: "Saved" }).closest("section")!;
+    expect(panel.textContent).toMatch(/your changes to maisons are saved/i);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("re-saving a word you already have, without edits, says it's already in your words (not an error)", async () => {
+    fake.rpc.mockResolvedValue({ data: 0, error: null });
+    const onSaved = vi.fn();
+    await generateMaisons(onSaved);
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /save card/i })));
+
+    expect(await screen.findByRole("heading", { name: "Saved" })).toBeTruthy();
+    expect(screen.getByText(/already in your French words/i)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

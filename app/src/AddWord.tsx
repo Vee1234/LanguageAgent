@@ -28,6 +28,7 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
   // Shared content as generated; edits are diffed against it and saved as the user's own notes.
   const [original, setOriginal] = useState<GeneratedCard | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savedMessage, setSavedMessage] = useState<"new" | "changes" | "already">("new");
   const [error, setError] = useState<string | null>(null);
 
   async function generate(e: FormEvent) {
@@ -50,16 +51,20 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
     setBusy(true);
     setError(null);
     const pick = (c: GeneratedCard) => Object.fromEntries(CARD_FIELDS.map(({ key }) => [key, c[key] ?? ""]));
+    const edits = userEdits(pick(original), pick(card));
     const { data: added, error } = await supabase.rpc("save_card", {
       p_word_id: card.word_id,
       p_surface_form: card.word,
-      p_user_notes: userEdits(pick(original), pick(card)),
+      p_user_notes: edits,
     });
     setBusy(false);
     if (error) return setError(error.message);
-    if (added === 0) {
-      return setError(`“${card.lemma}” is already in your ${card.language} words. Any edits were saved.`);
-    }
+    // Bug 15: 0 means "no new card" (the word was already yours), not failure. The save still
+    // succeeded, so always show Saved and refresh the list; only the message depends on the count.
+    const changed = Object.keys(edits).length > 0;
+    setSavedMessage(
+      added !== 0 ? "new" : changed ? "changes" : "already",
+    );
     setStep("saved");
     onSaved();
   }
@@ -146,7 +151,15 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
         <section className="panel center">
           <h1>Saved</h1>
           <p>
-            <strong>{card.word}</strong> is in your {card.language} words, and its card is due for review now.
+            {savedMessage === "new" && (
+              <><strong>{card.word}</strong> is in your {card.language} words, and its card is due for review now.</>
+            )}
+            {savedMessage === "changes" && (
+              <>Your changes to <strong>{card.word}</strong> are saved. It was already in your {card.language} words.</>
+            )}
+            {savedMessage === "already" && (
+              <><strong>{card.word}</strong> is already in your {card.language} words. Nothing needed saving.</>
+            )}
           </p>
           <div className="row">
             <button className="secondary" onClick={onViewWords}>See My words</button>

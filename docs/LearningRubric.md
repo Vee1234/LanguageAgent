@@ -76,3 +76,4 @@ line when a 4–5 finding has been worked through together.
 - Race conditions on shared state: optimistic concurrency, where a unique constraint picks the winner and the loser adopts it: D1 B12
 - Missing data must look missing (no silent control defaults); backfill as a reviewed job: D1 B13
 - Update requests need three states per field (unchanged, set, removed); base vs override data: D1 B14
+- A count isn't a verdict: '0 new rows' can still be success; branch messages, not success: D1 B15

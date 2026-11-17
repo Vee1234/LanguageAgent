@@ -517,7 +517,7 @@ The later feature is a "Use the shared version" button (with the user's view-the
 None: deferred, not fixed. The three-states principle is recorded above and in Concepts covered.
 
 ## Bug 15: Re-saving edits leaves the word list stale
-**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 4/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 4/5 (together) · **Status:** ✅ worked through together
 
 ### Learning score
 Gate: product. Q1 y: reading result codes correctly. Q2 n. Q3 y. Q4 n: one obvious fix. Q5 y (#1, visibility of system status).
@@ -528,6 +528,32 @@ Gate: product. Q1 y: reading result codes correctly. Q2 n. Q3 y. Q4 n: one obvio
 **Concept: a count isn't a verdict.** "0 new rows inserted" can mean "it was already there, and everything else worked", not "it failed". For example, `UPDATE … WHERE` touching 0 rows isn't an error. Treating every non-happy number as failure skips the work that should run after a success.
 
 **Guiding question:** From your point of view as the user, did that save succeed, and so which parts of `save()` should run in that case?
+
+### Worked through together
+- **The user's answer:** yes, it succeeded. Show the words, don't count an existing word as new, and make it clear the changes were saved.
+- **Principle:** a count describes *what* happened, not *whether* it worked. Branch the messaging on it, never the success path.
+
+### Solutions considered
+1. **Always take the success path** (Saved screen + `onSaved()` refresh), and choose the message from the count and whether there were edits.
+   - Pros: matches what actually happened.
+   - Cons: three messages to keep consistent.
+2. **Change `save_card` to return a status** ("new", "updated" or "unchanged").
+   - Pros: clearer contract.
+   - Cons: a database change for something the app can already work out (it knows its own edits).
+
+### Chosen solution
+Option 1: no database change, and the app already knows whether it sent edits.
+
+### Biggest weakness
+"Changes saved" is inferred from what the app *sent*, not confirmed by the database: `save_card` doesn't report how many notes it changed.
+
+### Implementation (TDD)
+- **Red:** `app/src/AddWord.test.tsx`: the old test expected the early-return message, so it was replaced by "re-saving a word you already have, with edits, counts as a save…" and "…without edits, says it's already in your words (not an error)". Both failed with `Unable to find role="heading" and name "Saved"`.
+- **Green:** `AddWord.tsx` no longer returns early on `0`. It always shows Saved and calls `onSaved()`, with three messages: new word, "Your changes to X are saved", or "already in your words, nothing needed saving". App `64 passed`, pytest `53 passed`, `tsc -b` clean.
+- **Refactor:** none needed. One test checked text split by `<strong>`, so it now checks the whole Saved panel's text.
+
+### Lesson learned
+> **L9 (proposed, awaiting your approval):** A count describes what an operation did, not whether it succeeded: branch only the messaging on it, never the success path.
 
 ## Bug 16: Saving a word can freeze list paging
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
