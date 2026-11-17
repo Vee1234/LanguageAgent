@@ -262,7 +262,7 @@ It's still a Claude Code hook: commits made outside Claude Code (plain `git comm
 - **Refactor:** none needed.
 
 ### Lesson learned
-> **W3 (proposed, awaiting your approval):** Anything the workflow relies on to enforce a rule must be versioned with the repo and must run at the point the rule is needed; local-only config, or a hook that fires later, is not a guarantee.
+> **W3 (approved by user 2026-11-17):** Anything the workflow relies on to enforce a rule must be versioned with the repo and must run at the point the rule is needed; local-only config, or a hook that fires later, is not a guarantee.
 
 ## Bug 9: Data-safety bugs in the workflow skip the floor
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 1/5 (agent) · **Verdict:** Not a bug
@@ -305,7 +305,7 @@ If Qodo changes its layout (e.g. stops putting group badges on their own line), 
 - **Refactor:** the depth-tracking helper became a single regex.
 
 ### Lesson learned
-> **W1 (proposed, awaiting your approval):** When parsing a third party's output, anchor on its fixed structure (explicit markers, line layout), never on text that its quoted content could also contain.
+> **W1 (approved by user 2026-11-17):** When parsing a third party's output, anchor on its fixed structure (explicit markers, line layout), never on text that its quoted content could also contain.
 
 ## Bug 11: A crafted word can plant text for all users
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
@@ -417,7 +417,7 @@ If Qodo drops or renames the marker, every review looks stale and the loop times
 - **Refactor:** removed the timestamp parsing.
 
 ### Lesson learned
-> **W2 (proposed, awaiting your approval):** Prove that a result belongs to the input you asked about with an explicit identifier (a commit SHA, a request ID), never by comparing timestamps.
+> **W2 (approved by user 2026-11-17):** Prove that a result belongs to the input you asked about with an explicit identifier (a commit SHA, a request ID), never by comparing timestamps.
 
 ## Bug 18: The review loop has no committed push step
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 1/5 (agent)
@@ -448,4 +448,4 @@ The commit rules are duplicated, so the skill and the hook could drift apart. Ed
 Instruction-file change only, so there's no code to test. Step 9 now says to commit and push itself, with the safeguards, before going back to step 0b.
 
 ### Lesson learned
-> Covered by **W3** (proposed above, in `docs/WorkflowLessons.md`): the rule has to run at the point it's needed.
+> Covered by **W3** (approved, in `docs/WorkflowLessons.md`): the rule has to run at the point it's needed.
