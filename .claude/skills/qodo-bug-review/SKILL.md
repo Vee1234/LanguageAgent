@@ -1,6 +1,6 @@
 ---
 name: qodo-bug-review
-description: Work through a Qodo bug review for this repo — fetch it from the PR (waiting for Qodo's analysis after a push) or take a pasted one, find each root cause, score how much the user would learn from it (fix 1–3 alone, hand 4–5 to the user), brainstorm and pick a fix, implement it test-first, propose a lesson for LessonsLearned.md, write BugReview/Day X Bug Review.md, and loop until Qodo reports no open items. Runs only when the user types /qodo-bug-review.
+description: Work through a Qodo bug review for this repo — fetch it from the PR (waiting for Qodo's analysis after a push) or take a pasted one, find each root cause, score how much the user would learn from it (fix 1–3 alone, hand 4–5 to the user), brainstorm and pick a fix, implement it test-first, propose a lesson for LessonsLearned.md, write BugReview/Day X Bug Review.md, then commit, push and stop: one round per run. Runs only when the user types /qodo-bug-review.
 disable-model-invocation: true
 ---
 
@@ -115,15 +115,18 @@ Gate: <product | workflow> — <reason>. Q1 <y/n> — <reason>. Q2 … Q3 … Q4
 Reply with: each bug's root cause (file:line) and learning score; for agent-fixed bugs the chosen fix; for together bugs the learning brief (concept + guiding question, no fix); the **proposed** lesson for each agent-fixed bug with an explicit request for approval, and the paths of the changed files plus the write-up.
 The Stop hook then reruns the tests and handles commit, push and PR, except for `LessonsLearned.md`: **never stage, commit or push changes to it (or to `docs/WorkflowLessons.md`) until the user has confirmed them.**
 
-## 9. Loop until Qodo is clean
-This loop runs only inside a `/qodo-bug-review` run the user started; a push on its own never starts a review.
-Before fetching again, **commit and push this round's fixes yourself**: the Stop hook only runs when a turn ends, so it can't do this mid-loop.
+## 9. One round per run
+Each `/qodo-bug-review` run does **one round**: fetch the review once (step 0b), work through it, then stop. To check Qodo again, the user runs `/qodo-bug-review` again; a push on its own never starts a review.
+
+At the end of the round, **commit and push this round's fixes yourself**, so the next run has a new head commit for Qodo to analyse:
 - Run both test suites first; commit only if they're green.
 - Stage specific files, grouping unrelated fixes into separate commits. Never stage `.env*`, and never stage `LessonsLearned.md` or `docs/WorkflowLessons.md` unless the user has approved its changes in conversation.
 - `git push`, then update the PR description so it covers the new commits.
 
-Then go back to step 0b. The script waits until Qodo's summary says it analysed the PR's new head commit (its trailing `<!-- …/commit/<sha> -->` marker), not just until the comment was edited.
-- Stop as soon as no **high or medium** finding scored **1–3** is left to fix: this is the early exit. That's `no_items`, or a round where every high/medium item is either scored 4–5 (together) or already handled. Low findings and together findings don't keep the loop going.
-- Score each finding once: keep a together finding's score across rounds, and don't re-brief it.
-- At the end, list the **together** findings (score, title, guiding question), highest severity first, and offer to start on the first one. When one is finished together, add its concept to "Concepts covered" in `docs/LearningRubric.md`.
-- Also stop after **3 rounds** in one session, or if a round returns only items you have already handled, and report what's still open. Never loop indefinitely.
+Then finish with a short report:
+- what you fixed (score 1–3), with commits
+- the **together** findings (score, title, guiding question), highest severity first, offering to start on the first one; when one is finished together, add its concept to "Concepts covered" in `docs/LearningRubric.md`
+- any low findings left, and anything deferred or accepted
+- **"Run `/qodo-bug-review` again to check Qodo's review of `<new head sha>`."** If nothing high or medium scored 1–3 remained this round, say there's nothing left for Claude to fix on its own.
+
+Across runs, score each finding once: reuse the score recorded in the write-up for a finding with the same title, and don't re-brief a together finding that's already in it.
