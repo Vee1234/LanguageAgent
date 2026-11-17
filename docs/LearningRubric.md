@@ -71,3 +71,4 @@ line when a 4–5 finding has been worked through together.
 - Treating a failed network read as a normal state, with retry: D1 B4
 - Row-level security and ownership of rows you reference: discussed on Day 1
 - Separating shared content from per-user progress (join table with a composite key): discussed on Day 1
+- Authentication vs authorisation: a genuine token isn't a user; check the caller first in service-role code: D1 B6

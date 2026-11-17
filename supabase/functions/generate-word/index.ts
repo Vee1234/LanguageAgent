@@ -8,6 +8,7 @@ import {
   FIELDS,
   buildPrompt,
   normalizeKey,
+  requireUser,
   resolveWord,
   responseSchema,
   validate,
@@ -122,6 +123,15 @@ const deps: ResolveDeps = {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
+
+  // Who is calling? Checked before anything else: the db client below uses the service role,
+  // which bypasses RLS, so this is the only gate between the internet and the shared cache.
+  const user = await requireUser(req.headers.get("Authorization"), async (token) => {
+    const { data, error } = await db.auth.getUser(token);
+    return error ? null : data.user;
+  });
+  if (!user) return json({ error: "Sign in to add words" }, 401);
+
   if (!GEMINI_API_KEY) return json({ error: "GEMINI_API_KEY secret is not set" }, 500);
 
   let word: string, language: string;

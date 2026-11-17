@@ -205,7 +205,7 @@ None proposed: this is a specific instance of L2 (pending), which already covers
 13 open high/medium findings. Learning scores come from `scripts/learning_score.py` (`docs/LearningRubric.md`): **8 product findings scored 4–5 → to work through together**; **5 workflow findings scored 1 → fixed by Claude**. One low finding ("Workflow bugs are asked for unneeded answers") is listed only.
 
 ## Bug 6: Anonymous callers can populate shared words
-**Source:** Qodo review (PR #2) · **Severity:** High · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** High · **Learning score:** 5/5 (together) · **Status:** ✅ worked through together
 
 ### Learning score
 Gate: product (Edge Function + shared data). Q1 y: authenticating the caller vs merely holding an API key applies to every backend. Q2 y: it decides who can write data every user sees. Q3 y: not in lessons or concepts covered. Q4 y: check the user inside the function, gateway settings, or move writes behind RLS. Q5 n: users don't see it directly.
@@ -216,6 +216,33 @@ Gate: product (Edge Function + shared data). Q1 y: authenticating the caller vs 
 **Concept: authentication is about a *person*, not a *key*.** A hotel gives every guest the lobby door code, so the code proves you're allowed in the building, but not which room is yours. Your room key card is tied to *you*. An app's public key is the lobby code: it identifies the app, not a user. A signed token can be perfectly valid and still say "nobody in particular".
 
 **Guiding question:** Inside the function, what would you have to look at to know *which signed-in person* is calling, and what should happen to a request where there is no such person?
+
+### Worked through together
+- **What a token proves:** a signature only shows a token is *genuine* (issued by Supabase and unchanged). *Who* it represents is in its payload (`role`, `sub`), which Supabase Auth writes after checking the password, so a caller can never choose it.
+- **The user's answer:** authenticate (is the token genuine?), then authorise (is it a real, valid user?), and only then write. Ownership checks (`user_id = auth.uid()`) protect per-user tables; shared rows have no owner, so the rule here is "is the caller a signed-in member at all?"
+
+### Solutions considered
+1. **Read the token's claims locally:** require `role = authenticated` and a `sub`.
+   - Pros: no extra call.
+   - Cons: trusts the token until it expires, so a user deleted or banned in the meantime still gets in.
+2. **Ask Supabase Auth about the token** (`auth.getUser(token)`), first thing in the handler, failing closed.
+   - Pros: also catches deleted or banned users and revoked sessions.
+   - Cons: one extra network call per request.
+
+### Chosen solution
+Option 2, the user's choice. This function writes shared content and spends the Gemini quota, and the extra call takes milliseconds against a Gemini call of seconds.
+
+### Biggest weakness
+**Any** signed-in user can still fill the shared cache and spend the Gemini quota. There's no rate limit or per-user quota yet, and sign-ups are open. That ties back to the open "Other users and Gemini cost" decision in `docs/roadmap.md`.
+
+### Implementation (TDD)
+- **Red:** `app/src/server/requireUser.test.ts` (valid user, public anon token, missing or malformed header, Auth unreachable) failed 4/4: `requireUser is not a function`. There was no user check anywhere.
+- **Green:** `requireUser(authorization, getUser)` in `logic.ts` fails closed. `index.ts` calls it with `db.auth.getUser(token)` before reading the body, calling Gemini or touching the database, and returns `401` otherwise. App `30 passed`, pytest `53 passed`, `tsc -b` clean.
+- **Refactor:** none needed.
+- **Not deployed:** part of the shared-cache release, still on hold.
+
+### Lesson learned
+> **L5 (proposed, awaiting your approval):** Every server path that uses elevated (service-role) access must first establish who the caller is and refuse anyone who isn't a real signed-in user; a validly signed token alone is not proof of a user.
 
 ## Bug 7: One user's saved edits become everyone's card text
 **Source:** Qodo review (PR #2) · **Severity:** High · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user

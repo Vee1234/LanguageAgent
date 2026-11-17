@@ -36,6 +36,26 @@ export type ResolveDeps = {
   addForm(language: string, formKey: string, wordId: string): Promise<void>;
 };
 
+/**
+ * Authorisation for writing the shared cache (Bug 6): only a real, signed-in user may call.
+ * A validly signed token isn't enough: the public anon token is genuine but names no user. So we
+ * ask Supabase Auth (getUser) who the token belongs to, which also catches deleted or banned users.
+ * Returns the user, or null. Fails closed: any error, or a missing or malformed header, means no user.
+ */
+export async function requireUser<U extends { id: string }>(
+  authorization: string | null,
+  getUser: (token: string) => Promise<U | null>,
+): Promise<U | null> {
+  const token = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  if (!token) return null;
+  try {
+    const user = await getUser(token);
+    return user?.id ? user : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Cache key for a word or form: trimmed, Unicode-NFC, lower-case. */
 export function normalizeKey(s: string): string {
   return s.trim().normalize("NFC").toLowerCase();
