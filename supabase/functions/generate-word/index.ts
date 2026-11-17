@@ -7,6 +7,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   FIELDS,
   buildPrompt,
+  invalidWordReason,
+  NotAWordError,
   normalizeKey,
   requireUser,
   resolveWord,
@@ -55,13 +57,15 @@ async function loadWord(id: string): Promise<SharedWord> {
 }
 
 async function callGemini(word: string, language: string): Promise<CardFields> {
+  const prompt = buildPrompt(word, language);
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY! },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: buildPrompt(word, language) }] }],
+        systemInstruction: { parts: [{ text: prompt.system }] },
+        contents: [{ role: "user", parts: [{ text: prompt.user }] }],
         generationConfig: { responseMimeType: "application/json", responseSchema, seed: 0 },
       }),
     },
@@ -142,7 +146,8 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: "Body must be JSON: { word, language }" }, 400);
   }
-  if (!word || word.length > 100) return json({ error: "word must be 1–100 characters" }, 400);
+  const badWord = invalidWordReason(word);
+  if (badWord) return json({ error: badWord }, 400);
   if (!language || language.length > 50) return json({ error: "language must be 1–50 characters" }, 400);
 
   try {
@@ -152,6 +157,7 @@ Deno.serve(async (req) => {
     );
     return json({ word_id: shared.id, word, language, lemma: shared.lemma, source, ...notes });
   } catch (err) {
+    if (err instanceof NotAWordError) return json({ error: err.message }, 422);
     console.error("generate-word failed", err);
     return json({ error: err instanceof Error ? err.message : "Could not generate the word" }, 502);
   }

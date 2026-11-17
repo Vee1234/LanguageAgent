@@ -91,7 +91,7 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
           <label>
             Word
             <input autoFocus autoCapitalize="off" autoCorrect="off" spellCheck={false}
-              required maxLength={100} value={word} placeholder="e.g. dépaysement"
+              required maxLength={60} value={word} placeholder="e.g. dépaysement"
               onChange={(e) => setWord(e.target.value)} />
           </label>
           <label>
