@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; case \"$f\" in *cardModels/*) python3 \"$CLAUDE_PROJECT_DIR\"/scripts/generate_api_shapes.py;; esac; } 2>/dev/null || true",
+            "statusMessage": "Regenerating API shapes doc"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/tdd-context.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/feature-commit.sh",
+            "timeout": 120,
+            "statusMessage": "Running tests and checking for a finished feature to commit"
+          }
+        ]
+      }
+    ]
+  }
+}

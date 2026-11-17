@@ -9,3 +9,6 @@ supabase/.temp/
 supabase/.branches/
 *.tsbuildinfo
 .pytest_cache/
+!.claude/skills/
+!.claude/hooks/
+!.claude/settings.json

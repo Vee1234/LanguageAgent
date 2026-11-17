@@ -1,48 +1,36 @@
-// generate-word: word + language -> ONE Gemini call -> validated JSON card fields.
-// Replaces the six separate calls in cardGenerators/LanguageUsageCardGenerator.py.
-// The Gemini key lives only here, as a Supabase secret; the browser never sees it.
+// generate-word: word + language → shared card content, from the cache when anyone has added
+// the word before, otherwise from ONE Gemini call (validated, then cached for everyone).
+// The Gemini key and the service-role key live only here, as Supabase secrets.
+// The cache logic itself is in logic.ts (unit-tested in app/src/server/resolveWord.test.ts).
+
+import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  FIELDS,
+  buildPrompt,
+  invalidWordReason,
+  NotAWordError,
+  normalizeKey,
+  requireUser,
+  resolveWord,
+  responseSchema,
+  validate,
+  type CardFields,
+  type ResolveDeps,
+  type SharedWord,
+} from "./logic.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
+
+// Service role: the only writer of shared words/notes/cards (users can only read them).
+const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+  auth: { persistSession: false },
+});
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const FIELDS = [
-  "lemma",
-  "definition",
-  "example",
-  "emotional_colour",
-  "usage_conditions",
-  "notable_use",
-  "lyric",
-] as const;
-type Field = (typeof FIELDS)[number];
-type CardFields = Record<Field, string>;
-
-// Same instructions as constants.py, merged into one request.
-function buildPrompt(word: string, language: string): string {
-  return `I am learning ${language} and want to create a flashcard for the word "${word}".
-Write every field in ${language}, with no English translations or explanations.
-Each value goes straight onto a flashcard, so include nothing but the requested content.
-
-- lemma: the dictionary form of "${word}".
-- definition: a short, single-sentence definition.
-- example: one short sentence using "${word}" to show how it is used.
-- emotional_colour: the feelings the word evokes, as a short fragment, not a sentence.
-- usage_conditions: when the word is used — situations, relationships and register — as a short fragment.
-- notable_use: if the word appears in a well-known saying, proverb, work of literature, speech or song, quote that use in one line. If there is no such use, return exactly NONE. Never invent a use.
-- lyric: one line from a well-known song that contains the word, with no title or artist. If you are not sure of a real line, return exactly NONE. Never invent one.`;
-}
-
-const responseSchema = {
-  type: "OBJECT",
-  properties: Object.fromEntries(FIELDS.map((f) => [f, { type: "STRING" }])),
-  required: [...FIELDS],
-  propertyOrdering: [...FIELDS],
 };
 
 function json(body: unknown, status = 200): Response {
@@ -52,22 +40,104 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function validate(raw: unknown): CardFields {
-  if (typeof raw !== "object" || raw === null) throw new Error("Gemini did not return an object");
-  const out = {} as CardFields;
-  for (const field of FIELDS) {
-    const value = (raw as Record<string, unknown>)[field];
-    if (typeof value !== "string") throw new Error(`Gemini response is missing "${field}"`);
-    const trimmed = value.trim();
-    out[field] = trimmed === "NONE" ? "" : trimmed;
-  }
-  if (!out.lemma) throw new Error("Gemini returned an empty lemma");
-  return out;
+type WordRow = { id: string; language: string; lemma: string; notes: { kind: string; body: string }[] };
+const WORD_COLUMNS = "id, language, lemma, notes(kind, body)";
+
+const toShared = (r: WordRow): SharedWord => ({
+  id: r.id,
+  language: r.language,
+  lemma: r.lemma,
+  notes: Object.fromEntries(r.notes.map((n) => [n.kind, n.body])),
+});
+
+async function loadWord(id: string): Promise<SharedWord> {
+  const { data, error } = await db.from("words").select(WORD_COLUMNS).eq("id", id).single();
+  if (error) throw error;
+  return toShared(data as unknown as WordRow);
 }
+
+async function callGemini(word: string, language: string): Promise<CardFields> {
+  const prompt = buildPrompt(word, language);
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY! },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: prompt.system }] },
+        contents: [{ role: "user", parts: [{ text: prompt.user }] }],
+        generationConfig: { responseMimeType: "application/json", responseSchema, seed: 0 },
+      }),
+    },
+  );
+  if (!res.ok) {
+    console.error("Gemini error", res.status, await res.text());
+    throw new Error(`Gemini request failed (${res.status})`);
+  }
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof text !== "string") throw new Error("Gemini returned no text");
+  return validate(JSON.parse(text));
+}
+
+const deps: ResolveDeps = {
+  async findByForm(language, formKey) {
+    const { data, error } = await db
+      .from("word_forms")
+      .select(`words(${WORD_COLUMNS})`)
+      .eq("language", language)
+      .eq("form_key", formKey)
+      .maybeSingle();
+    if (error) throw error;
+    const row = (data as unknown as { words: WordRow | null } | null)?.words;
+    return row ? toShared(row) : null;
+  },
+  async findByLemma(language, lemmaKey) {
+    const { data, error } = await db
+      .from("words")
+      .select(WORD_COLUMNS)
+      .eq("language", language)
+      .eq("lemma_key", lemmaKey)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? toShared(data as unknown as WordRow) : null;
+  },
+  generate: callGemini,
+  async insertWord(language, fields) {
+    const { data: id, error } = await db.rpc("insert_shared_word", {
+      p_language: language,
+      p_lemma: fields.lemma,
+      p_lemma_key: normalizeKey(fields.lemma),
+      p_fields: fields,
+    });
+    if (error) throw error;
+    return loadWord(id as string);
+  },
+  async addForm(language, formKey, wordId) {
+    // One statement: insert the mapping, or return the word that already owns it (Bug 12).
+    const { data, error } = await db.rpc("claim_word_form", {
+      p_language: language,
+      p_form_key: formKey,
+      p_word_id: wordId,
+    });
+    if (error) throw error;
+    return data as string;
+  },
+  findById: loadWord,
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Use POST" }, 405);
+
+  // Who is calling? Checked before anything else: the db client below uses the service role,
+  // which bypasses RLS, so this is the only gate between the internet and the shared cache.
+  const user = await requireUser(req.headers.get("Authorization"), async (token) => {
+    const { data, error } = await db.auth.getUser(token);
+    return error ? null : data.user;
+  });
+  if (!user) return json({ error: "Sign in to add words" }, 401);
+
   if (!GEMINI_API_KEY) return json({ error: "GEMINI_API_KEY secret is not set" }, 500);
 
   let word: string, language: string;
@@ -78,38 +148,19 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: "Body must be JSON: { word, language }" }, 400);
   }
-  if (!word || word.length > 100) return json({ error: "word must be 1–100 characters" }, 400);
+  const badWord = invalidWordReason(word);
+  if (badWord) return json({ error: badWord }, 400);
   if (!language || language.length > 50) return json({ error: "language must be 1–50 characters" }, 400);
 
-  const geminiRes = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: buildPrompt(word, language) }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema,
-          seed: 0,
-        },
-      }),
-    },
-  );
-
-  if (!geminiRes.ok) {
-    const detail = await geminiRes.text();
-    console.error("Gemini error", geminiRes.status, detail);
-    return json({ error: `Gemini request failed (${geminiRes.status})` }, 502);
-  }
-
   try {
-    const data = await geminiRes.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string") throw new Error("Gemini returned no text");
-    return json({ word, language, ...validate(JSON.parse(text)) });
+    const { word: shared, source } = await resolveWord(word, language, deps);
+    const notes = Object.fromEntries(
+      FIELDS.filter((f) => f !== "lemma").map((f) => [f, shared.notes[f as keyof SharedWord["notes"]] ?? ""]),
+    );
+    return json({ word_id: shared.id, word, language, lemma: shared.lemma, source, ...notes });
   } catch (err) {
-    console.error("Bad Gemini response", err);
-    return json({ error: err instanceof Error ? err.message : "Bad Gemini response" }, 502);
+    if (err instanceof NotAWordError) return json({ error: err.message }, 422);
+    console.error("generate-word failed", err);
+    return json({ error: err instanceof Error ? err.message : "Could not generate the word" }, 502);
   }
 });

@@ -29,6 +29,20 @@ Python only if feature 6's pronunciation scoring ever needs a self-hosted model.
   - *Host pays:* per-user quotas / rate limits, or a paid tier.
   - *User pays:* bring-your-own Gemini key, or self-host a fork.
   - *Shared cache:* generate content once per word + language and reuse it across users.
+    **DECIDED (2026-11-16): use the shared cache.** `words` and generated `notes` are shared
+    and read-only for users (written only by the `generate-word` Edge Function); `cards`,
+    user notes and decks are per-user. Not yet migrated: the current schema is still per-user.
+    Target schema (content shared, progress per user):
+
+    | Table | Shared? | Key | Holds |
+    |---|---|---|---|
+    | `words` | shared | `id`; unique (`language`, `lemma`) | language, lemma |
+    | `notes` (generated) | shared | `id` → `word_id` | definition, example, register, … |
+    | `cards` | shared | `id` → `word_id` | card type (`definition`, `register`, …): which note is the question |
+    | `user_cards` | per user | (`user_id`, `card_id`) | `due_at`, `interval_days`, `ease`, `reps`, `surface_form` |
+
+    Shared tables: readable by signed-in users, writable only by the Edge Function (service key).
+    `user_cards`: RLS `user_id = auth.uid()`. User-written notes stay per-user, with `user_id`.
   - Until decided, sign-ups and auth below are marked **OPEN**.
 - [ ] **Schema.** Minimal draft to start from:
 
@@ -86,6 +100,11 @@ The smallest loop that makes the app useful.
 
 - [ ] Edit / add your own notes on a word (feature 1). Plain database writes from the client.
 - [ ] Decks: create, add words, review by deck (feature 4).
+- [ ] Backfill missing shared notes, e.g. the register for words saved before it existed (Bug 13):
+      a loop that proposes values via Gemini, and the user approves them before they become shared.
+- [ ] *(Deferred product decision, Bug 14)* View the shared (base) version of a card next to your own,
+      and "Use the shared version" to drop a personal override (delete its `user_notes` row). No
+      schema change is needed: the override and its base share `word_id` + `kind`.
 - [ ] Edge Function `fetch-lyric`: Musixmatch lookup → stored as a note (feature 7).
       The free plan returns partial lyrics only.
 
