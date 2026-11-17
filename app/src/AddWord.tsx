@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { CARD_FIELDS, REGISTERS, supabase, type FieldKey, type GeneratedCard } from "./supabase";
+import { userEdits } from "./cards";
 
 type Step = "word" | "review" | "saved";
 
@@ -24,6 +25,8 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
   const [word, setWord] = useState("");
   const [language, setLanguage] = useState(() => localStorage.getItem("language") ?? "French");
   const [card, setCard] = useState<GeneratedCard | null>(null);
+  // Shared content as generated; edits are diffed against it and saved as the user's own notes.
+  const [original, setOriginal] = useState<GeneratedCard | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,25 +41,24 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
     setBusy(false);
     if (error || !data) return setError(await errorMessage(error ?? new Error("No response")));
     setCard(data);
+    setOriginal(data);
     setStep("review");
   }
 
   async function save() {
-    if (!card) return;
+    if (!card || !original) return;
     setBusy(true);
     setError(null);
-    const fields = Object.fromEntries(CARD_FIELDS.map(({ key }) => [key, card[key]]));
-    const { error } = await supabase.rpc("save_word", {
-      p_language: card.language,
+    const pick = (c: GeneratedCard) => Object.fromEntries(CARD_FIELDS.map(({ key }) => [key, c[key] ?? ""]));
+    const { data: added, error } = await supabase.rpc("save_card", {
+      p_word_id: card.word_id,
       p_surface_form: card.word,
-      p_lemma: card.lemma,
-      p_fields: fields,
+      p_user_notes: userEdits(pick(original), pick(card)),
     });
     setBusy(false);
-    if (error) {
-      return setError(
-        error.code === "23505" ? `“${card.lemma}” is already in your ${card.language} words.` : error.message,
-      );
+    if (error) return setError(error.message);
+    if (added === 0) {
+      return setError(`“${card.lemma}” is already in your ${card.language} words. Any edits were saved.`);
     }
     setStep("saved");
     onSaved();
@@ -65,11 +67,12 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
   function startOver() {
     setWord("");
     setCard(null);
+    setOriginal(null);
     setError(null);
     setStep("word");
   }
 
-  const edit = (key: FieldKey | "lemma", value: string) =>
+  const edit = (key: FieldKey, value: string) =>
     setCard((c) => (c ? { ...c, [key]: value } : c));
 
   return (
@@ -108,10 +111,9 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
         <section className="panel">
           <p className="eyebrow">{card.language}</p>
           <h1 className="headword">{card.word}</h1>
-          <label className="lemma">
-            Dictionary form
-            <input value={card.lemma} onChange={(e) => edit("lemma", e.target.value)} />
-          </label>
+          {card.lemma !== card.word && (
+            <p className="muted lemma">Dictionary form: <strong>{card.lemma}</strong></p>
+          )}
 
           {CARD_FIELDS.map(({ key, label }) => (
             <label key={key} className="field">
@@ -130,7 +132,7 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
           {error && <p className="error" role="alert">{error}</p>}
           <div className="row">
             <button className="secondary" onClick={startOver} disabled={busy}>Discard</button>
-            <button className="primary" onClick={save} disabled={busy || !card.lemma.trim()}>
+            <button className="primary" onClick={save} disabled={busy}>
               {busy ? "Saving…" : "Save card"}
             </button>
           </div>

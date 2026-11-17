@@ -3,7 +3,10 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- A fake Supabase client: one signed-in user at a time, controllable word lists ---
-type Row = { id: string; surface_form: string; lemma: string; language: string; created_at: string; notes: [] };
+type Row = {
+  card_id: string; surface_form: string; created_at: string;
+  cards: { words: { id: string; language: string; lemma: string; notes: []; user_notes: [] } };
+};
 type Result = { data: Row[] | null; error: null };
 
 const fake = vi.hoisted(() => {
@@ -45,8 +48,8 @@ import App from "./App";
 
 const session = (id: string) => ({ user: { id }, access_token: `token-${id}` });
 const word = (surface_form: string): Row => ({
-  id: surface_form, surface_form, lemma: surface_form, language: "French",
-  created_at: "2026-11-16T00:00:00Z", notes: [],
+  card_id: `card-${surface_form}`, surface_form, created_at: "2026-11-16T00:00:00Z",
+  cards: { words: { id: surface_form, language: "French", lemma: surface_form, notes: [], user_notes: [] } },
 });
 const respond = (index: number, rows: Row[]) =>
   act(async () => fake.state.pending[index].resolve({ data: rows, error: null }));

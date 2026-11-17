@@ -28,7 +28,7 @@ afterEach(() => {
 
 describe("My words pagination", () => {
   it("shows the total from the database, not the number of rows loaded", async () => {
-    fetchWordsPage.mockResolvedValueOnce({ rows: page(0, 50), total: 1234, cursor: { id: "id49", created_at: "x" } });
+    fetchWordsPage.mockResolvedValueOnce({ rows: page(0, 50), total: 1234, cursor: { card_id: "c49", created_at: "x" } });
 
     render(<Words version={0} />);
 
@@ -38,7 +38,7 @@ describe("My words pagination", () => {
 
   it("loads the next page after the last word shown, and appends it", async () => {
     fetchWordsPage
-      .mockResolvedValueOnce({ rows: page(0, 50), total: 60, cursor: { id: "id49", created_at: "c49" } })
+      .mockResolvedValueOnce({ rows: page(0, 50), total: 60, cursor: { card_id: "c49", created_at: "t49" } })
       .mockResolvedValueOnce({ rows: page(50, 60), total: null, cursor: null });
 
     render(<Words version={0} />);
@@ -47,7 +47,7 @@ describe("My words pagination", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /load more/i })));
 
     await waitFor(() => expect(screen.getByText("word59")).toBeTruthy());
-    expect(fetchWordsPage).toHaveBeenLastCalledWith({ id: "id49", created_at: "c49" });
+    expect(fetchWordsPage).toHaveBeenLastCalledWith({ card_id: "c49", created_at: "t49" });
     expect(screen.getByText("word0")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
   });
@@ -71,7 +71,7 @@ describe("My words after a failed read", () => {
 
   it("keeps the loaded words when Load more fails, and retries just that page", async () => {
     fetchWordsPage
-      .mockResolvedValueOnce({ rows: page(0, 50), total: 60, cursor: { id: "id49", created_at: "c49" } })
+      .mockResolvedValueOnce({ rows: page(0, 50), total: 60, cursor: { card_id: "c49", created_at: "t49" } })
       .mockRejectedValueOnce(new Error("Network request failed"))
       .mockResolvedValueOnce({ rows: page(50, 60), total: null, cursor: null });
 
@@ -85,6 +85,6 @@ describe("My words after a failed read", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /retry/i })));
 
     await waitFor(() => expect(screen.getByText("word59")).toBeTruthy());
-    expect(fetchWordsPage).toHaveBeenLastCalledWith({ id: "id49", created_at: "c49" });
+    expect(fetchWordsPage).toHaveBeenLastCalledWith({ card_id: "c49", created_at: "t49" });
   });
 });

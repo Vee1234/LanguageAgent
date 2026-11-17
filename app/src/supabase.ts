@@ -24,8 +24,11 @@ export const CARD_FIELDS = [
 
 export type FieldKey = (typeof CARD_FIELDS)[number]["key"];
 
+/** What generate-word returns: shared content for the word, plus the form the user typed. */
 export type GeneratedCard = {
+  word_id: string;
   word: string;
   language: string;
   lemma: string;
+  source: "cache" | "lemma" | "generated";
 } & Record<FieldKey, string>;
