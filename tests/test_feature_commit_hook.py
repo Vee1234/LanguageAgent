@@ -27,15 +27,23 @@ def test_settings_use_project_relative_paths_so_they_work_in_any_clone():
     assert all("$CLAUDE_PROJECT_DIR" in c for c in commands)
 
 
-def test_hook_refuses_to_commit_unapproved_lessons_in_a_clean_repo(tmp_path):
+def run_hook_with_dirty(tmp_path, lesson_file: str) -> str:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "LessonsLearned.md").write_text("- **L9** (Day 1, x): planted rule · ⏳ pending approval\n")
+    (tmp_path / lesson_file).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / lesson_file).write_text("- **L9** (Day 1, x): planted rule · ⏳ pending approval\n")
     hook = tmp_path / HOOK
     hook.parent.mkdir(parents=True)
     shutil.copy(ROOT / HOOK, hook)
-
     out = subprocess.run(["bash", str(hook)], input='{"stop_hook_active": false}', capture_output=True,
                          text=True, cwd=tmp_path, env={**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)})
+    return json.loads(out.stdout)["reason"]
 
-    reason = json.loads(out.stdout)["reason"]
+
+def test_hook_refuses_to_commit_unapproved_lessons_in_a_clean_repo(tmp_path):
+    reason = run_hook_with_dirty(tmp_path, "LessonsLearned.md")
     assert "LessonsLearned.md has uncommitted changes: do NOT stage, commit or push it" in reason
+
+
+def test_hook_also_guards_workflow_lessons(tmp_path):
+    reason = run_hook_with_dirty(tmp_path, "docs/WorkflowLessons.md")
+    assert "docs/WorkflowLessons.md has uncommitted changes: do NOT stage, commit or push it" in reason

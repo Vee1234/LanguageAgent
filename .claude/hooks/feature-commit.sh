@@ -62,10 +62,13 @@ if [ "$branch" = "$default_branch" ]; then
   pr_step="You are on the default branch '$branch': do not open a PR. Ask the user before pushing directly to it."
 fi
 
+# Lesson files only change with the user's explicit approval (L2): never auto-commit them.
 lessons_step=""
-if git status --porcelain -- LessonsLearned.md | grep -q .; then
-  lessons_step="LessonsLearned.md has uncommitted changes: do NOT stage, commit or push it. Show the user the exact lesson text and ask them to approve it; only after they confirm in conversation, mark it '✅ approved by user <date>' and commit it on a later turn. "
-fi
+for lessons in LessonsLearned.md docs/WorkflowLessons.md; do
+  if git status --porcelain -- "$lessons" | grep -q .; then
+    lessons_step+="$lessons has uncommitted changes: do NOT stage, commit or push it. Show the user the exact lesson text and ask them to approve it; only after they confirm in conversation, mark it '✅ approved by user <date>' and commit it on a later turn. "
+  fi
+done
 
 reason="Feature commit hook: tests are GREEN. ${lessons_step} The repo has uncommitted changes and/or $ahead unpushed commit(s) on '$branch'. \
 If this turn finished a new feature (or a complete, working change), commit it now with a descriptive message \
