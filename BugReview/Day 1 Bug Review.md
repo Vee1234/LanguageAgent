@@ -443,7 +443,7 @@ A race still spends one extra Gemini call, and the losing request's word (e.g. a
 - **Not deployed:** part of the shared-cache release (the dry run shows only this migration pending).
 
 ### Lesson learned
-> **L7 (proposed, awaiting your approval):** When concurrent requests can write the same shared record, let a database constraint pick the winner and have every request use what was actually stored, never what it computed for itself.
+> **L7 (approved by user 2026-11-17):** When concurrent requests can write the same shared record, let a database constraint pick the winner and have every request use what was actually stored, never what it computed for itself.
 
 ## Bug 13: Older words show a register that wasn't saved
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
