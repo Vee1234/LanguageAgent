@@ -135,7 +135,7 @@ Each value goes straight onto a flashcard, so include nothing but the requested 
 
 - lemma: the dictionary form of the word.
 - definition: a short, single-sentence definition.
-- example: one short sentence using the word to show how it is used.
+- example: one simple textbook sentence using the word, like "The cat is on the table." Keep it basic.
 - register: the register the word is most typically used in. Output exactly one word, in English, from this list and nothing else — no description:
   - Frozen: fixed, ritualistic language that rarely changes (constitutions, prayers, anthems, statutes).
   - Formal: impersonal, serious, one-way language with strict grammar and no slang (papers, reports, official speeches).
@@ -179,6 +179,9 @@ export function validate(raw: unknown): CardFields {
     const trimmed = value.trim();
     out[field] = trimmed === "NONE" ? "" : trimmed;
   }
+  // Cards look nicer without blanks, so fill in sensible defaults.
+  if (!out.emotional_colour) out.emotional_colour = "neutral";
+  if (!out.example) out.example = out.lemma;
   if (!out.lemma) throw new NotAWordError(); // the prompt's refusal rule: lemma NONE
   if (invalidWordReason(out.lemma)) throw new Error(`Gemini returned an invalid lemma "${out.lemma}"`);
   for (const field of FIELDS) {
