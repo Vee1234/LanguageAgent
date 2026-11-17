@@ -484,7 +484,7 @@ Older words show "Not set yet" until the backfill exists, and the review screen 
 - **Refactor:** none needed.
 
 ### Lesson learned
-> **L8 (proposed, awaiting your approval):** A missing value must look missing: never let a control's default stand in for data nobody chose, and never save it as if someone had.
+> **L8 (approved by user 2026-11-17):** A missing value must look missing: never let a control's default stand in for data nobody chose, and never save it as if someone had.
 
 ## Bug 14: Personal notes can't be reverted
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
