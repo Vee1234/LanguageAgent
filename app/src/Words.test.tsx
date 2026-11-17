@@ -88,3 +88,27 @@ describe("My words after a failed read", () => {
     expect(fetchWordsPage).toHaveBeenLastCalledWith({ card_id: "c49", created_at: "t49" });
   });
 });
+
+describe("saving while Load more is still waiting (Bug 16)", () => {
+  it("can load more again after a save restarts the list", async () => {
+    let finishStaleLoadMore: (v: unknown) => void = () => {};
+    fetchWordsPage
+      .mockResolvedValueOnce({ rows: page(0, 50), total: 120, cursor: { card_id: "c49", created_at: "t49" } })
+      .mockReturnValueOnce(new Promise((resolve) => (finishStaleLoadMore = resolve))) // slow Load more
+      .mockResolvedValueOnce({ rows: page(0, 50), total: 121, cursor: { card_id: "c49", created_at: "t49" } }) // after save
+      .mockResolvedValueOnce({ rows: page(50, 60), total: null, cursor: null }); // Load more after the restart
+
+    const { rerender } = render(<Words version={0} />);
+    await screen.findByText("word0");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /load more/i })));
+
+    rerender(<Words version={1} />); // a word was saved: the list restarts
+    await screen.findByText("121");
+    await act(async () => finishStaleLoadMore({ rows: page(50, 55), total: null, cursor: null })); // stale: ignored
+
+    const button = screen.getByRole("button", { name: /load more/i });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => fireEvent.click(button));
+    await waitFor(() => expect(screen.getByText("word59")).toBeTruthy());
+  });
+});

@@ -556,7 +556,7 @@ Option 1: no database change, and the app already knows whether it sent edits.
 > **L9 (approved by user 2026-11-17):** A count describes what an operation did, not whether it succeeded: branch only the messaging on it, never the success path.
 
 ## Bug 16: Saving a word can freeze list paging
-**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ✅ worked through together
 
 ### Learning score
 Gate: product (a React effect and async state). Q1 y: invalidating in-flight async work. Q2 n. Q3 y: the stale-response guard is covered, but ownership of the state it leaves behind isn't. Q4 y. Q5 y (#3, user control and freedom; #1, visibility of system status).
@@ -567,6 +567,35 @@ Gate: product (a React effect and async state). Q1 y: invalidating in-flight asy
 **Concept: when you abandon async work, you inherit the state it owned.** Cancelling an order but leaving the "order in progress" light on means nobody can place a new one. Ignoring a stale response (the generation guard) is half the job; the other half is resetting the flags that request had set.
 
 **Guiding question:** When the list restarts, which pieces of state belonged to the request you just abandoned, and which code is now responsible for resetting them?
+
+### Worked through together
+- **Clarified "the list restarts":** saving bumps a counter in `App.tsx`, so `Words.tsx`'s first-page effect reruns. It clears the list, bumps `generation` (marking in-flight requests out of date) and fetches page one again.
+- **The user's answer:** when the generation number increases, set `loadingMore` to false. The restart abandons the request, so the restart takes over resetting the flag that request owned.
+
+### Solutions considered
+1. **Reset `loadingMore` in the restart effect**, where the generation is bumped.
+   - Pros: one line, at the exact moment of abandoning.
+   - Cons: any future per-request flag must be remembered there too.
+2. **Let the stale Load more still clear `loadingMore`** (move `setLoadingMore(false)` before the generation check).
+   - Pros: no new reset point.
+   - Cons: a stale response would then change the new list's state. If a fresh Load more were already running, the stale one would mark it finished too early.
+3. **Cancel the request with an `AbortController`.**
+   - Pros: no wasted network.
+   - Cons: more code, and the flag still needs resetting.
+
+### Chosen solution
+Option 1, the user's answer: it keeps stale responses fully ignored (the existing guard), and the restart owns everything it abandons.
+
+### Biggest weakness
+It's a convention: a new piece of per-request state (e.g. a "retrying" flag) would need the same reset added by hand.
+
+### Implementation (TDD)
+- **Red:** `app/src/Words.test.tsx` › "can load more again after a save restarts the list" (a slow Load more, then a save restarts the list, then the stale reply arrives) failed with `Unable to find an accessible element with the role "button" and name /load more/i`: the button was stuck on "Loading…".
+- **Green:** `Words.tsx` calls `setLoadingMore(false)` in the first-page effect, where the generation is bumped. App `65 passed`, pytest `53 passed`, `tsc -b` clean.
+- **Refactor:** none needed.
+
+### Lesson learned
+> **L10 (proposed, awaiting your approval):** Whoever abandons in-flight async work takes over the state it owned: when a newer request supersedes an older one, reset that request's flags at the moment of superseding.
 
 ## Bug 17: An old review can pass the freshness check
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 1/5 (agent)

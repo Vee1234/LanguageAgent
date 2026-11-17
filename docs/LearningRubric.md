@@ -77,3 +77,4 @@ line when a 4–5 finding has been worked through together.
 - Missing data must look missing (no silent control defaults); backfill as a reviewed job: D1 B13
 - Update requests need three states per field (unchanged, set, removed); base vs override data: D1 B14
 - A count isn't a verdict: '0 new rows' can still be success; branch messages, not success: D1 B15
+- Abandoning async work: the code that supersedes a request resets the state it owned: D1 B16

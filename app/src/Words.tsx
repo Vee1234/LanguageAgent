@@ -31,6 +31,9 @@ export default function Words({ version }: { version: number }) {
     setWords(null);
     setError(null);
     setMoreError(null);
+    // Bug 16: bumping the generation abandons any in-flight Load more, so its own
+    // setLoadingMore(false) will never run. The restart owns that flag now: reset it here.
+    setLoadingMore(false);
     fetchWordsPage(null).then(
       (page) => {
         if (gen !== generation.current) return;
