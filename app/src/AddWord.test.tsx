@@ -81,3 +81,30 @@ describe("saving a word from the shared cache", () => {
     expect(await screen.findByText(/already in your French words/i)).toBeTruthy();
   });
 });
+
+describe("a shared word with no register yet (Bug 13)", () => {
+  beforeEach(() => {
+    fake.invoke.mockResolvedValue({ data: { ...generated, register: "" }, error: null });
+    fake.rpc.mockResolvedValue({ data: 1, error: null });
+  });
+
+  it("shows the register as not set, instead of silently showing the first option", async () => {
+    await generateMaisons();
+    const notSet = screen.getByRole("option", { name: /not set/i }) as HTMLOptionElement;
+    expect(notSet.selected).toBe(true);
+    expect((screen.getByRole("option", { name: "Frozen" }) as HTMLOptionElement).selected).toBe(false);
+  });
+
+  it("saves no register when the user leaves it empty", async () => {
+    await generateMaisons();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /save card/i })));
+    expect(fake.rpc.mock.calls[0][1].p_user_notes).not.toHaveProperty("register");
+  });
+
+  it("saves the register as the user's own note when they choose one", async () => {
+    await generateMaisons();
+    fireEvent.change(screen.getByLabelText("Register"), { target: { value: "Formal" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /save card/i })));
+    expect(fake.rpc.mock.calls[0][1].p_user_notes).toEqual({ register: "Formal" });
+  });
+});

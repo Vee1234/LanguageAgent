@@ -120,6 +120,9 @@ export default function AddWord({ onSaved, onViewWords }: Props) {
               {label}
               {key === "register" ? (
                 <select value={card.register ?? ""} onChange={(e) => edit(key, e.target.value)}>
+                  {/* A missing register must look missing (Bug 13): without this option the browser
+                      silently shows the first register, as if it had been chosen. */}
+                  {!original?.register && <option value="">Not set yet</option>}
                   {REGISTERS.map((r) => <option key={r}>{r}</option>)}
                 </select>
               ) : (

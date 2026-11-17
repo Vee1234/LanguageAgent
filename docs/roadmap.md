@@ -100,6 +100,8 @@ The smallest loop that makes the app useful.
 
 - [ ] Edit / add your own notes on a word (feature 1). Plain database writes from the client.
 - [ ] Decks: create, add words, review by deck (feature 4).
+- [ ] Backfill missing shared notes, e.g. the register for words saved before it existed (Bug 13):
+      a loop that proposes values via Gemini, and the user approves them before they become shared.
 - [ ] Edge Function `fetch-lyric`: Musixmatch lookup → stored as a note (feature 7).
       The free plan returns partial lyrics only.
 

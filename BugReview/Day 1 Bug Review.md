@@ -446,7 +446,7 @@ A race still spends one extra Gemini call, and the losing request's word (e.g. a
 > **L7 (approved by user 2026-11-17):** When concurrent requests can write the same shared record, let a database constraint pick the winner and have every request use what was actually stored, never what it computed for itself.
 
 ## Bug 13: Older words show a register that wasn't saved
-**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ✅ worked through together
 
 ### Learning score
 Gate: product (UI and data). Q1 y: missing data must look missing. Q2 n: nothing incorrect is saved, it's only displayed wrongly. Q3 y. Q4 y: placeholder and require a choice, or fill it in by regenerating. Q5 y (#1, visibility of system status; #5, error prevention).
@@ -457,6 +457,34 @@ Gate: product (UI and data). Q1 y: missing data must look missing. Q2 n: nothing
 **Concept: an absent value must *look* absent.** UI controls quietly fall back to a default; picture a sign-up form whose country list starts at "Afghanistan" and pre-selects it. The user can't tell "this is the answer" from "nobody chose".
 
 **Guiding question:** What should the register control show when the shared word has no register yet, and what should Save do if the user leaves it that way?
+
+### Worked through together
+- **The user's answer:** show it as **empty**, and leave it empty on Save. Filling in missing values for old words is a separate, later job: a loop that proposes values, with the user approving them. It's now in the roadmap.
+
+### Solutions considered
+1. **An explicit "Not set yet" option, selected when the shared word has no register;** Save stores nothing unless the user picks one.
+   - Pros: honest, with no invented data.
+   - Cons: older words stay without a register until the backfill exists.
+2. **Require a choice before saving** (Qodo's suggestion).
+   - Pros: every saved word gets a register.
+   - Cons: forces a guess and blocks saving.
+3. **Regenerate the missing register on lookup.**
+   - Pros: fills the gap automatically.
+   - Cons: a Gemini call per old word, and unreviewed shared data.
+
+### Chosen solution
+Option 1, the user's choice. Option 3 becomes the later backfill loop, with approval.
+
+### Biggest weakness
+Older words show "Not set yet" until the backfill exists, and the review screen doesn't explain why.
+
+### Implementation (TDD)
+- **Red:** `app/src/AddWord.test.tsx` › "shows the register as not set…" failed with `Unable to find an accessible element with the role "option" and name /not set/i`. Two more tests (nothing saved when left empty; a chosen register saved as the user's own note) passed already and guard Save's behaviour.
+- **Green:** `AddWord.tsx` adds `<option value="">Not set yet</option>`, only when the shared word has no register, so it can't be used to blank out a real one. App `63 passed`, `tsc -b` clean.
+- **Refactor:** none needed.
+
+### Lesson learned
+> **L8 (proposed, awaiting your approval):** A missing value must look missing: never let a control's default stand in for data nobody chose, and never save it as if someone had.
 
 ## Bug 14: Personal notes can't be reverted
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
