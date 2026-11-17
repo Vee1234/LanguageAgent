@@ -59,7 +59,9 @@ export type ResolveDeps = {
   findByLemma(language: string, lemmaKey: string): Promise<SharedWord | null>;
   generate(word: string, language: string): Promise<CardFields>;
   insertWord(language: string, fields: CardFields): Promise<SharedWord>;
-  addForm(language: string, formKey: string, wordId: string): Promise<void>;
+  /** Map formKey to wordId unless another request already did; returns the word that owns the form now. */
+  addForm(language: string, formKey: string, wordId: string): Promise<string>;
+  findById(id: string): Promise<SharedWord>;
 };
 
 /**
@@ -93,6 +95,7 @@ export function normalizeKey(s: string): string {
  * 2. Otherwise Gemini gives the lemma; if that lemma is cached, reuse it (Gemini's new text is discarded
  *    so everyone sees the same content) and remember the new form.
  * 3. Otherwise store the new word and remember both the typed form and the lemma.
+ * If a concurrent request registered the same form first, its word wins and is returned instead.
  */
 export async function resolveWord(
   word: string,
@@ -108,15 +111,15 @@ export async function resolveWord(
   const lemmaKey = normalizeKey(fields.lemma);
 
   const existing = await deps.findByLemma(language, lemmaKey);
-  if (existing) {
-    await deps.addForm(language, formKey, existing.id);
-    return { word: existing, source: "lemma" };
-  }
+  const offered = existing ?? (await deps.insertWord(language, fields));
 
-  const created = await deps.insertWord(language, fields);
-  await deps.addForm(language, formKey, created.id);
-  if (lemmaKey !== formKey) await deps.addForm(language, lemmaKey, created.id);
-  return { word: created, source: "generated" };
+  // Optimistic concurrency (Bug 12): the unique (language, form_key) decides who wins. If another
+  // request mapped this form first, adopt its word so everyone sees what the cache says.
+  const owner = await deps.addForm(language, formKey, offered.id);
+  if (!existing && lemmaKey !== formKey) await deps.addForm(language, lemmaKey, offered.id);
+  if (owner !== offered.id) return { word: await deps.findById(owner), source: "cache" };
+
+  return { word: offered, source: existing ? "lemma" : "generated" };
 }
 
 // Same instructions as constants.py, merged into one request. The user's text never appears in

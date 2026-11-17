@@ -114,14 +114,16 @@ const deps: ResolveDeps = {
     return loadWord(id as string);
   },
   async addForm(language, formKey, wordId) {
-    const { error } = await db
-      .from("word_forms")
-      .upsert({ language, form_key: formKey, word_id: wordId }, {
-        onConflict: "language,form_key",
-        ignoreDuplicates: true,
-      });
+    // One statement: insert the mapping, or return the word that already owns it (Bug 12).
+    const { data, error } = await db.rpc("claim_word_form", {
+      p_language: language,
+      p_form_key: formKey,
+      p_word_id: wordId,
+    });
     if (error) throw error;
+    return data as string;
   },
+  findById: loadWord,
 };
 
 Deno.serve(async (req) => {

@@ -73,3 +73,4 @@ line when a 4–5 finding has been worked through together.
 - Separating shared content from per-user progress (join table with a composite key): discussed on Day 1
 - Authentication vs authorisation: a genuine token isn't a user; check the caller first in service-role code: D1 B6
 - Prompt injection and defence in depth: allowlist input, isolate instructions, validate output in code: D1 B11
+- Race conditions on shared state: optimistic concurrency, where a unique constraint picks the winner and the loser adopts it: D1 B12

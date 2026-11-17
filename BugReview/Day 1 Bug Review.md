@@ -400,7 +400,7 @@ Option 3: every layer except the prompt is code the model can't argue with, and 
 > **L6 (approved by user 2026-11-17):** Never rely on a model to keep user text as data: constrain the input with a code-enforced allowlist, keep it out of the instructions, and validate the model's output in code before storing it for anyone else.
 
 ## Bug 12: Concurrent requests can cache different words
-**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
+**Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ✅ worked through together
 
 ### Learning score
 Gate: product. Q1 y: race conditions (check-then-act). Q2 y: shared data ends up inconsistent. Q3 y. Q4 y: several ways to settle who wins. Q5 n.
@@ -411,6 +411,39 @@ Gate: product. Q1 y: race conditions (check-then-act). Q2 y: shared data ends up
 **Concept: check-then-act races.** Two people both see the last seat on a flight as free, and both click "book". Checking first doesn't help, because the world can change between your check and your write. The database's answer *at the moment of the write* is the truth, not what you worked out before it.
 
 **Guiding question:** When `addForm` finds the form already taken by another request, what does that tell this request, and whose word should it return to the user?
+
+### Worked through together
+- **The user named the cause:** *shared state* that two requests can change at once, and proposed a lock (pessimistic concurrency). They noted that per-user apps sidestep most of this, and asked how an app handles one user saving from two devices. That covered last-write-wins, optimistic concurrency (version checks), saving each field separately, and live merging. (How Quizlet actually does it isn't known to us.)
+- **The trade-off:** a lock would have to be held across a Gemini call of several seconds, which a database transaction lock can't do across separate PostgREST requests, so it would need a "claimed" row with a timeout for crashed holders. Optimistic: let both run and let the unique constraint decide, with the loser adopting the winner's word.
+- **The user's choice:** optimistic.
+
+### Solutions considered
+1. **Pessimistic lock:** a "claimed / in progress" row per form, with a timeout.
+   - Pros: no duplicate Gemini call.
+   - Cons: more moving parts, and crash recovery is needed.
+2. **Optimistic:** `claim_word_form` inserts the mapping or returns the existing owner, and `resolveWord` returns the owner's word if it isn't its own.
+   - Pros: simple, and correct by the database's own rules.
+   - Cons: in a race, one Gemini call is wasted.
+
+### Chosen solution
+Option 2, the user's choice.
+
+### Biggest weakness
+A race still spends one extra Gemini call, and the losing request's word (e.g. a different lemma Gemini produced) stays in the shared cache under its own lemma. The SQL itself isn't covered by a test (no local database). While reviewing it, a same-statement snapshot bug was found and fixed by inspection, not by a test.
+
+### Implementation (TDD)
+- **Red:** `app/src/server/resolveWord.test.ts` › "returns the winner's word when another request registered the same new form first" failed with `source: 'generated'` (the loser returned its own word), and "…the form was claimed meanwhile" failed with `id: 'w-maison'` instead of `'w-other'`.
+- **Green:**
+  - `logic.ts`: `addForm` returns the owning word ID, there's a new `findById` dependency, and `resolveWord` adopts the owner when it lost.
+  - `index.ts`: `addForm` calls the new `claim_word_form` database function.
+  - The migration adds `claim_word_form` (service role only).
+
+  App `60 passed`, pytest `53 passed`, `tsc -b` clean.
+- **Refactor:** `claim_word_form` was first a single-statement CTE (`insert … on conflict do nothing` then `select` in the same statement). Under READ COMMITTED a statement sees one snapshot, so it could miss a winner that committed just after the snapshot was taken, the same race one level down. Rewritten in plpgsql as two statements, so the fallback `select` takes a fresh snapshot.
+- **Not deployed:** part of the shared-cache release (the dry run shows only this migration pending).
+
+### Lesson learned
+> **L7 (proposed, awaiting your approval):** When concurrent requests can write the same shared record, let a database constraint pick the winner and have every request use what was actually stored, never what it computed for itself.
 
 ## Bug 13: Older words show a register that wasn't saved
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user

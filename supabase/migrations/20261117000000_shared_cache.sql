@@ -199,6 +199,40 @@ $$;
 revoke execute on function public.insert_shared_word(text, text, text, jsonb) from public, anon, authenticated;
 grant execute on function public.insert_shared_word(text, text, text, jsonb) to service_role;
 
+-- 6b. Registering a typed form for a word, safely under concurrency (Bug 12): insert the mapping, or
+--     if another request got there first, keep theirs. Returns the word that owns the form either way,
+--     so the caller can adopt the winner instead of returning its own, unmapped word. Service role only.
+create function public.claim_word_form(
+  p_language text,
+  p_form_key text,
+  p_word_id  uuid
+) returns uuid
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_owner uuid;
+begin
+  insert into public.word_forms (language, form_key, word_id)
+  values (p_language, p_form_key, p_word_id)
+  on conflict (language, form_key) do nothing
+  returning word_id into v_owner;
+
+  if v_owner is null then
+    -- A separate statement on purpose: under READ COMMITTED it takes a fresh snapshot, so it sees a
+    -- winner that committed after the INSERT's snapshot. A single-statement CTE can miss that row.
+    select word_id into v_owner from public.word_forms
+    where language = p_language and form_key = p_form_key;
+  end if;
+
+  return v_owner;
+end;
+$$;
+
+revoke execute on function public.claim_word_form(text, text, uuid) from public, anon, authenticated;
+grant execute on function public.claim_word_form(text, text, uuid) to service_role;
+
 -- 7. Saving a word for the signed-in user: start studying its cards, and store their edits as
 --    personal notes (shared notes are never edited). Returns how many new cards were added:
 --    0 means the word was already theirs. security invoker: RLS on user_cards / user_notes applies.
