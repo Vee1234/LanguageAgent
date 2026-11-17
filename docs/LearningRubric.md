@@ -55,10 +55,10 @@ workflow, so they score 1.
 | Bug | Gate | Q1 | Q2 | Q3 | Q4 | Q5 | Score | User |
 |---|---|---|---|---|---|---|---|---|
 | D1 B1: previous user's words stay on screen | product | ✓ | ✓ | ✓ | ✓ | ✗ | 5 | learn |
-| D2 B1: untrusted review text plants lessons | workflow | | | | | | 1 | no |
-| D2 B2: paging past 1,000 words | product | ✓ | ✗ | ✓ | ✓ | ✓ #1 | 5 | learn |
-| D2 B3: failed reads never retry | product | ✓ | ✗ | ✓ | ✓ | ✓ #9 | 5 | learn |
-| D2 B4: a non-bug still writes a lesson | workflow | | | | | | 1 | no |
+| D1 B2: untrusted review text plants lessons | workflow | | | | | | 1 | no |
+| D1 B3: paging past 1,000 words | product | ✓ | ✗ | ✓ | ✓ | ✓ #1 | 5 | learn |
+| D1 B4: failed reads never retry | product | ✓ | ✗ | ✓ | ✓ | ✓ #9 | 5 | learn |
+| D1 B5: a non-bug still writes a lesson | workflow | | | | | | 1 | no |
 
 `tests/test_learning_score.py` checks that these answers give these outcomes.
 
@@ -67,7 +67,7 @@ Concepts the user has already worked through; Q3 is "no" for a finding about one
 line when a 4–5 finding has been worked through together.
 
 - Client state must be scoped to the signed-in user (keyed remount): D1 B1
-- Paging large collections with a stable keyset cursor; counts from the database: D2 B2
-- Treating a failed network read as a normal state, with retry: D2 B3
+- Paging large collections with a stable keyset cursor; counts from the database: D1 B3
+- Treating a failed network read as a normal state, with retry: D1 B4
 - Row-level security and ownership of rows you reference: discussed on Day 1
 - Separating shared content from per-user progress (join table with a composite key): discussed on Day 1

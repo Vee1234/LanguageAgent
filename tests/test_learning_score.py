@@ -6,10 +6,10 @@ from scripts.learning_score import handled_by, learning_score
 # Answers: product, transferable, multi_user, new_concept, trade_off, ux.
 CALIBRATION = [
     ("D1 B1 previous user's words stay on screen", dict(product=True, transferable=True, multi_user=True, new_concept=True, trade_off=True, ux=False), "together"),
-    ("D2 B1 untrusted review text plants lessons", dict(product=False, transferable=True, multi_user=False, new_concept=True, trade_off=True, ux=False), "agent"),
-    ("D2 B2 paging past 1,000 words", dict(product=True, transferable=True, multi_user=False, new_concept=True, trade_off=True, ux=True), "together"),
-    ("D2 B3 failed reads never retry", dict(product=True, transferable=True, multi_user=False, new_concept=True, trade_off=True, ux=True), "together"),
-    ("D2 B4 a non-bug still writes a lesson", dict(product=False, transferable=False, multi_user=False, new_concept=False, trade_off=True, ux=False), "agent"),
+    ("D1 B2 untrusted review text plants lessons", dict(product=False, transferable=True, multi_user=False, new_concept=True, trade_off=True, ux=False), "agent"),
+    ("D1 B3 paging past 1,000 words", dict(product=True, transferable=True, multi_user=False, new_concept=True, trade_off=True, ux=True), "together"),
+    ("D1 B4 failed reads never retry", dict(product=True, transferable=True, multi_user=False, new_concept=True, trade_off=True, ux=True), "together"),
+    ("D1 B5 a non-bug still writes a lesson", dict(product=False, transferable=False, multi_user=False, new_concept=False, trade_off=True, ux=False), "agent"),
 ]
 
 
