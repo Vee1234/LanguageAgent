@@ -397,7 +397,7 @@ Option 3: every layer except the prompt is code the model can't argue with, and 
 - **Not deployed:** part of the shared-cache release.
 
 ### Lesson learned
-> **L6 (proposed, awaiting your approval):** Never rely on a model to keep user text as data: constrain the input with a code-enforced allowlist, keep it out of the instructions, and validate the model's output in code before storing it for anyone else.
+> **L6 (approved by user 2026-11-17):** Never rely on a model to keep user text as data: constrain the input with a code-enforced allowlist, keep it out of the instructions, and validate the model's output in code before storing it for anyone else.
 
 ## Bug 12: Concurrent requests can cache different words
 **Source:** Qodo review (PR #2) · **Severity:** Medium · **Learning score:** 5/5 (together) · **Status:** ⏳ to work through with the user
