@@ -15,13 +15,19 @@ skill; the structure and template are in `docs/backlog.md`.
   `python3 scripts/backlog_order.py order`. The script never marks a ticket ▶ while it has an
   open PR (it's listed as "in review"), or while it waits on one.
 - **Never build a ticket twice.** Before creating a branch, check for earlier work:
-  `gh pr list --state all --search '"Closes #N" in:body'` (check each result really closes #N, not
-  #N0) and `git ls-remote --heads origin "ticket-N-*"`.
+  `gh pr list --state all --search '"Closes #N" in:body' --json number,state,body` (check each
+  result really closes #N, not #N0), `git branch --list "ticket-N-*"` for local branches and
+  `git ls-remote --heads origin "ticket-N-*"` for pushed ones.
+  - **Merged PR:** the ticket is already resolved. Say so, with the PR link, and stop, even if
+    the user named it. If they think it's incomplete, file a follow-up ticket with `backlog-order`.
   - **Open PR:** don't start again. Resume that PR at step 5, on its branch.
-  - **PR closed without merging** (the order shows "closed without merging"): ask the user
+  - **PR closed without merging** (state `CLOSED`, not `MERGED`; the order shows "closed without merging"): ask the user
     why before doing anything. It may have been rejected, replaced, or need redoing in another way.
     Rebuild only if they say so, and link the old PR in the new one.
-  - **A branch with no PR:** ask the user whether to continue it or delete it.
+  - **A branch with no PR, local or pushed:** ask the user whether to continue it or delete it.
+    A local branch may hold the only copy of unpushed work, so never delete one without asking.
+- Before switching branches, run `git status --short`. If the working tree isn't clean, stop and
+  ask the user what to do with the changes.
 - If no ticket is ▶ (everything left is in review or waits on a ticket in review), say so and
   stop. Don't pick around the order.
 - Stop and say so if the ticket is a decision only the user can make, or needs the user's own
