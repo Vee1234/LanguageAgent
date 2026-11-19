@@ -193,9 +193,76 @@ def test_next_is_the_first_ticket_with_nothing_open_blocking_it():
         ticket(12, 1, cost=1),
     ]
     plan = order_backlog(issues, ORDER)
-    assert numbers(plan) == [10, 12]
-    assert plan.order[0].blocked_by == [11]
+    assert numbers(plan) == [12]
     assert plan.next == 12
+
+
+# --- Day 3 review regressions ------------------------------------------------
+
+def test_fenced_examples_are_not_dependencies():
+    fence = "```markdown\n## Depends on\n- #99\n```\n"
+    before = "## Goal\nLike this:\n\n" + fence + "\n## Depends on\n- #12\n"
+    after = "## Depends on\n- #12\n\n## Notes\n" + fence
+    assert parse_depends_on(before) == [12]
+    assert parse_depends_on(after) == [12]
+
+
+def test_a_comment_inside_a_fence_does_not_end_the_section():
+    body = "## Depends on\n- #12\n```sh\n# a shell comment\n```\n- #15\n"
+    assert parse_depends_on(body) == [12, 15]
+
+
+def test_a_ticket_waiting_on_triage_work_is_kept_out_of_the_order():
+    issues = [
+        epic(1, "core"),
+        ticket(10, 1, cost=5, deps=[11]),
+        ticket(11, 1),                    # in triage, still open
+        ticket(13, 1, cost=4, deps=[10]), # waits on 10, so on 11 too
+        ticket(12, 1, cost=1),
+    ]
+    plan = order_backlog(issues, ORDER)
+    assert numbers(plan) == [12]
+    assert dict(plan.blocked) == {10: [11], 13: [10]}
+
+
+def test_a_closed_parent_with_open_sub_issues_still_blocks():
+    issues = [
+        epic(1, "core"),
+        ticket(5, 1, state="CLOSED"),     # closed container
+        ticket(6, 5, cost=1),             # its sub-issue is still open
+        ticket(20, 1, cost=5, deps=[5]),
+    ]
+    plan = order_backlog(issues, ORDER)
+    assert numbers(plan) == [6, 20]
+    assert {e.number: e.blocked_by for e in plan.order}[20] == [6]
+
+
+def test_a_ticket_that_lists_itself_is_stuck_not_scheduled():
+    issues = [epic(1, "core"), ticket(10, 1, cost=2, deps=[10]), ticket(12, 1, cost=1)]
+    plan = order_backlog(issues, ORDER)
+    assert numbers(plan) == [12]
+    assert plan.cycle == [10]
+
+
+def test_depending_on_your_own_container_is_not_a_self_dependency():
+    issues = [
+        epic(1, "core"),
+        ticket(5, 1),
+        ticket(6, 5, cost=1, deps=[5]),
+        ticket(7, 5, cost=1),
+    ]
+    plan = order_backlog(issues, ORDER)
+    assert numbers(plan) == [7, 6]
+    assert plan.cycle == []
+
+
+def test_truncated_labels_fail_loudly():
+    import pytest
+    node = {"number": 3, "title": "T", "state": "OPEN", "body": "", "parent": None,
+            "labels": {"nodes": [{"name": "epic"}], "pageInfo": {"hasNextPage": True}}}
+    resp = {"data": {"repository": {"issues": {"nodes": [node]}}}}
+    with pytest.raises(ValueError, match="#3"):
+        parse_graphql(resp)
 
 
 def test_the_real_backlog_doc_starts_with_core_and_lists_every_category():

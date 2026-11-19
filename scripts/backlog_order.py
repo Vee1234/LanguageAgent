@@ -54,6 +54,7 @@ class Plan:
     triage: list[tuple[int, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     cycle: list[int] = field(default_factory=list)  # tickets in, or waiting behind, a cycle
+    blocked: list[tuple[int, list[int]]] = field(default_factory=list)  # waiting on unordered open work
     next: int | None = None
 
 
@@ -75,12 +76,22 @@ def change_cost(*, stores_data: bool, trust_boundary: bool, shared_contract: boo
 # --- parsing -------------------------------------------------------------------
 
 _HEADING = re.compile(r"^#{1,6}\s")
+_FENCE = re.compile(r"^\s{0,3}(```|~~~)")
 
 
 def _section(text: str, name: str) -> list[str]:
-    """Lines under the heading `## <name>`, up to the next heading."""
-    lines, inside = [], False
+    """Lines under the heading `## <name>`, up to the next heading. Fenced code blocks are
+    examples, not structure: nothing inside them is read, and a `#` line there isn't a heading."""
+    lines, inside, fence = [], False, None
     for line in text.splitlines():
+        m = _FENCE.match(line)
+        if fence:
+            if m and m.group(1) == fence:
+                fence = None
+            continue
+        if m:
+            fence = m.group(1)
+            continue
         if _HEADING.match(line):
             inside = re.match(rf"^##\s+{re.escape(name)}\s*$", line, re.IGNORECASE) is not None
             continue
@@ -112,6 +123,10 @@ def parse_category_order(doc: str) -> list[str]:
 def parse_graphql(resp: dict) -> list[Issue]:
     """Issues from one page of the GraphQL response that `fetch_issues` asks for."""
     nodes = resp["data"]["repository"]["issues"]["nodes"]
+    for n in nodes:
+        if (n["labels"].get("pageInfo") or {}).get("hasNextPage"):
+            raise ValueError(f"#{n['number']} has more labels than the query reads; "
+                             "its category and change cost can't be trusted")
     return [
         Issue(
             number=n["number"],
@@ -159,13 +174,12 @@ def order_backlog(issues: list[Issue], category_order: list[str]) -> Plan:
         return None
 
     def open_leaves(n: int) -> list[int]:
-        """The open work items a reference to #n stands for: itself, or its open children."""
-        if not is_open(n):
-            return []
+        """The open work items a reference to #n stands for: its open sub-issues (even if #n
+        itself was closed), or else #n while it is open."""
         kids = [c for c in children[n] if is_open(c)]
-        if not kids:
-            return [] if is_epic(n) else [n]
-        return [leaf for c in kids for leaf in open_leaves(c)]
+        if kids:
+            return [leaf for c in kids for leaf in open_leaves(c)]
+        return [n] if is_open(n) and not is_epic(n) else []
 
     # Work items: open tickets with no open children. Containers and epics are only groupings.
     work = [i.number for i in issues if is_open(i.number) and not is_epic(i.number) and not open_children(i.number)]
@@ -194,10 +208,25 @@ def order_backlog(issues: list[Issue], category_order: list[str]) -> Plan:
             if d not in by_num:
                 plan.warnings.append(f"#{n} depends on #{d}, which doesn't exist in this repository")
                 continue
-            for leaf in open_leaves(d):
-                if leaf != n and leaf not in found:
+            # Depending on your own container includes you; that isn't a self-dependency.
+            # Listing yourself is, and it leaves the ticket stuck like any other cycle.
+            for leaf in [n] if d == n else open_leaves(d):
+                if (leaf != n or d == n) and leaf not in found:
                     found.append(leaf)
         deps[n] = sorted(found)
+
+    # Rule 1: a ticket waiting on open work that isn't ordered (triage, or something itself
+    # blocked) can't be built yet, so it is listed with its blockers instead of ordered.
+    blocked: dict[int, list[int]] = {}
+    changed = True
+    while changed:
+        changed = False
+        for n in sorted(scheduled - blocked.keys()):
+            stopped = [d for d in deps[n] if d not in scheduled or d in blocked]
+            if stopped:
+                blocked[n], changed = stopped, True
+    plan.blocked = sorted(blocked.items())
+    scheduled -= blocked.keys()
 
     needed_by: dict[int, set[int]] = defaultdict(set)  # direct dependants among scheduled tickets
     for n in scheduled:
@@ -253,7 +282,7 @@ query($owner: String!, $name: String!, $after: String) {
     issues(first: 100, after: $after, states: [OPEN, CLOSED]) {
       nodes {
         number title state body
-        labels(first: 20) { nodes { name } }
+        labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
         parent { number }
       }
       pageInfo { hasNextPage endCursor }
@@ -298,6 +327,9 @@ def render(plan: Plan) -> str:
     if plan.triage:
         out += ["", "## Needs triage (not ordered)", ""]
         out += [f"- #{n}: {why}" for n, why in plan.triage]
+    if plan.blocked:
+        out += ["", "## Blocked: waiting on tickets that aren't ordered", ""]
+        out += [f"- #{n} waits for " + ", ".join(f"#{d}" for d in ds) for n, ds in plan.blocked]
     if plan.cycle:
         out += ["", "## Stuck: in or behind a dependency cycle", ""]
         out.append(", ".join(f"#{n}" for n in plan.cycle))
