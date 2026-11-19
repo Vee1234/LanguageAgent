@@ -72,3 +72,11 @@ def test_on_a_ticket_branch_the_pr_body_comes_from_the_ticket(tmp_path):
 def test_on_another_branch_the_pr_body_is_written_as_before(tmp_path):
     reason = run_hook_on_branch(tmp_path, "some-feature")
     assert "pr-body" not in reason
+
+
+def test_an_existing_ticket_pr_is_updated_from_its_current_body(tmp_path):
+    if shutil.which("gh") is None or subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
+        import pytest
+        pytest.skip("the PR step needs a logged-in gh")
+    reason = run_hook_on_branch(tmp_path, "ticket-42-shared-guard")
+    assert "pr-body 42 --pr ticket-42-shared-guard" in reason

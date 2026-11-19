@@ -322,6 +322,37 @@ def fill_pr_template(template: str, number: int, title: str, url: str, issue_bod
     return "\n".join(out) + "\n"
 
 
+def _item_key(line: str) -> str | None:
+    """A criterion line's text without its checkbox or evidence, for matching across versions."""
+    m = re.match(r"^\s*[-*]\s*\[[ xX]\]\s*(.+)$", line)
+    return " ".join(m.group(1).split(" — ")[0].split()) if m else None
+
+
+def merge_pr_body(existing: str, fresh: str) -> str:
+    """Update an existing PR description from a freshly filled template without losing work:
+    ticked criteria, their evidence and every other section (Summary, Review and verification…)
+    stay as they are; criteria the ticket gained since are added unticked; a missing
+    `Closes #N` line is restored."""
+    lines = existing.rstrip("\n").splitlines()
+    if not any(re.match(r"^Closes #\d+\s*$", l) for l in lines):
+        closes = next(l for l in fresh.splitlines() if re.match(r"^Closes #\d+\s*$", l))
+        lines = [closes, ""] + lines
+    for name in ("Acceptance criteria", "Edge or failure case"):
+        have = {_item_key(l) for l in _section(existing, name)} - {None}
+        new_items = [l for l in _section(fresh, name) if _item_key(l) and _item_key(l) not in have]
+        if not new_items:
+            continue
+        start = next((i for i, l in enumerate(lines) if re.match(rf"^##\s+{re.escape(name)}\s*$", l)), None)
+        if start is None:
+            lines += ["", f"## {name}"] + new_items
+            continue
+        end = next((i for i in range(start + 1, len(lines)) if _HEADING.match(lines[i])), len(lines))
+        last = max([i for i in range(start + 1, end) if _item_key(lines[i]) or lines[i].strip().startswith("<!--")],
+                   default=start)
+        lines[last + 1:last + 1] = new_items
+    return "\n".join(lines) + "\n"
+
+
 def _criteria(issue_body: str, name: str, number: int) -> list[str]:
     items = [re.sub(r"^(\s*[-*]\s*)\[[xX ]\]", r"\1[ ]", l) for l in _section(issue_body, name) if l.strip()]
     return items or [f"- Not in the ticket: add it to #{number} before building."]
@@ -416,6 +447,8 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("pr-body", help="PR description for a ticket, from .github/pull_request_template.md")
     b.add_argument("number", type=int)
     b.add_argument("--repo", help="OWNER/NAME (default: this checkout's GitHub repo)")
+    b.add_argument("--pr", help="an existing PR (number or branch): update its current description instead "
+                                "of starting from the template, keeping ticked criteria and review records")
 
     o = sub.add_parser("order", help="print the build order")
     o.add_argument("--repo", help="OWNER/NAME (default: this checkout's GitHub repo)")
@@ -434,8 +467,13 @@ def main(argv: list[str] | None = None) -> int:
         issue = json.loads(subprocess.run(
             ["gh", "issue", "view", str(args.number), "-R", repo, "--json", "number,title,url,body"],
             check=True, capture_output=True, text=True).stdout)
-        print(fill_pr_template(PR_TEMPLATE.read_text(), issue["number"], issue["title"], issue["url"], issue["body"])
-              + "\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")
+        fresh = fill_pr_template(PR_TEMPLATE.read_text(), issue["number"], issue["title"], issue["url"], issue["body"])
+        if args.pr:
+            existing = subprocess.run(["gh", "pr", "view", args.pr, "-R", repo, "--json", "body", "-q", ".body"],
+                                      check=True, capture_output=True, text=True).stdout
+            print(merge_pr_body(existing, fresh), end="")
+        else:
+            print(fresh + "\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")
         return 0
 
     issues = parse_graphql(json.loads(Path(args.input).read_text())) if args.input \

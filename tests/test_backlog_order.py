@@ -399,3 +399,50 @@ def test_truncated_closing_prs_fail_loudly():
     resp = {"data": {"repository": {"issues": {"nodes": [node], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
     with pytest.raises(ValueError, match="#9"):
         parse_graphql(resp)
+
+
+# --- updating an existing PR body keeps recorded work --------------------------
+
+EXISTING_PR = """Closes #42
+
+**Ticket:** [#42 Do the thing](u)
+
+## Acceptance criteria
+- [x] [code] Given a, then b. — test: tests/test_a.py::test_b
+- [ ] [use] On the phone, see c.
+
+## Edge or failure case
+- [ ] [code] Empty input is refused.
+
+## Summary
+What I wrote.
+
+## Review and verification
+**Qodo findings:** two, both triaged.
+"""
+
+UPDATED_TICKET = TICKET_BODY.replace(
+    "- [x] [use] On the phone, see c.\n", "- [x] [use] On the phone, see c.\n- [ ] [code] A new criterion.\n")
+
+
+def test_updating_keeps_ticked_criteria_their_evidence_and_the_review_record():
+    from scripts.backlog_order import fill_pr_template, merge_pr_body
+    fresh = fill_pr_template(TEMPLATE, 42, "Do the thing", "u", UPDATED_TICKET)
+    out = merge_pr_body(EXISTING_PR, fresh)
+    assert "- [x] [code] Given a, then b. — test: tests/test_a.py::test_b" in out
+    assert "What I wrote." in out
+    assert "**Qodo findings:** two, both triaged." in out
+    assert out.count("Given a, then b.") == 1
+
+
+def test_updating_adds_criteria_the_ticket_gained_unticked():
+    from scripts.backlog_order import fill_pr_template, merge_pr_body
+    out = merge_pr_body(EXISTING_PR, fill_pr_template(TEMPLATE, 42, "T", "u", UPDATED_TICKET))
+    criteria = out.split("## Acceptance criteria")[1].split("## Edge or failure case")[0]
+    assert "- [ ] [code] A new criterion." in criteria
+
+
+def test_updating_restores_a_missing_closes_line():
+    from scripts.backlog_order import fill_pr_template, merge_pr_body
+    out = merge_pr_body(EXISTING_PR.replace("Closes #42\n", ""), fill_pr_template(TEMPLATE, 42, "T", "u", TICKET_BODY))
+    assert out.splitlines()[0] == "Closes #42"
