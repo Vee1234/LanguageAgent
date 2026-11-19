@@ -58,6 +58,17 @@ else
   pr_step="Skip the PR: the GitHub CLI (gh) is not installed or not logged in — tell the user to run 'brew install gh' and 'gh auth login'."
 fi
 
+# A ticket branch (ticket-N-...) gets its PR body from the ticket, so it always says "Closes #N".
+ticket=$(printf '%s' "$branch" | sed -n 's/^ticket-\([0-9][0-9]*\)-.*/\1/p')
+if [ -n "$ticket" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  pr_step="Then make sure a PR exists for '$branch' into '$default_branch': check with 'gh pr view $branch'. \
+This is ticket #$ticket's branch: generate the body with 'python3 scripts/backlog_order.py pr-body $ticket > <file>' \
+(it fills .github/pull_request_template.md with Closes #$ticket, the ticket link and its acceptance criteria), \
+then fill in its Summary, Changes and Testing sections. If there is no PR, create it with \
+'gh pr create --base $default_branch --head $branch --title <title> --body-file <file>'. \
+If one exists, update it with 'gh pr edit $branch --body-file <file>', keeping Closes #$ticket, the criteria already ticked and the Review and verification section."
+fi
+
 if [ "$branch" = "$default_branch" ]; then
   pr_step="You are on the default branch '$branch': do not open a PR. Ask the user before pushing directly to it."
 fi

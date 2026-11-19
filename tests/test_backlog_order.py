@@ -318,3 +318,71 @@ def test_graphql_reads_open_and_closed_unmerged_prs_but_not_merged_ones():
     resp = {"data": {"repository": {"issues": {"nodes": [node], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
     issue = parse_graphql(resp)[0]
     assert (issue.open_prs, issue.closed_prs) == ([77], [78])
+
+
+# --- PR description from the ticket ------------------------------------------
+
+TEMPLATE = """Closes #
+
+**Ticket:**
+
+## Acceptance criteria
+<!-- Copied from the ticket. -->
+
+## Edge or failure case
+
+## Summary
+"""
+
+TICKET_BODY = """## Goal
+Do the thing.
+
+## Acceptance criteria
+- [ ] [code] Given a, then b.
+- [x] [use] On the phone, see c.
+
+## Edge or failure case
+- [ ] [code] Empty input is refused.
+
+## Out of scope
+- Not this.
+"""
+
+
+def test_pr_body_closes_the_ticket_and_links_it():
+    from scripts.backlog_order import fill_pr_template
+    out = fill_pr_template(TEMPLATE, 42, "Do the thing", "https://github.com/o/r/issues/42", TICKET_BODY)
+    assert out.splitlines()[0] == "Closes #42"
+    assert "**Ticket:** [#42 Do the thing](https://github.com/o/r/issues/42)" in out
+
+
+def test_pr_body_copies_the_criteria_and_edge_case_unticked_and_nothing_else():
+    from scripts.backlog_order import fill_pr_template
+    out = fill_pr_template(TEMPLATE, 42, "T", "u", TICKET_BODY)
+    criteria = out.split("## Acceptance criteria")[1].split("## Edge or failure case")[0]
+    assert "- [ ] [code] Given a, then b." in criteria
+    assert "- [ ] [use] On the phone, see c." in criteria  # ticked only once there is evidence
+    edge = out.split("## Edge or failure case")[1].split("## Summary")[0]
+    assert "- [ ] [code] Empty input is refused." in edge
+    assert "Not this." not in out
+
+
+def test_pr_body_shows_a_missing_section_as_missing():
+    from scripts.backlog_order import fill_pr_template
+    out = fill_pr_template(TEMPLATE, 42, "T", "u", "## Goal\nNo criteria.\n")
+    assert "Not in the ticket: add it to #42 before building." in out.split("## Acceptance criteria")[1]
+
+
+def test_pr_body_refuses_a_template_without_a_closes_line():
+    import pytest
+    from scripts.backlog_order import fill_pr_template
+    with pytest.raises(ValueError):
+        fill_pr_template("## Summary\n", 42, "T", "u", TICKET_BODY)
+
+
+def test_the_repo_pr_template_has_the_lines_pr_body_fills():
+    from scripts.backlog_order import PR_TEMPLATE
+    lines = PR_TEMPLATE.read_text().splitlines()
+    assert "Closes #" in lines
+    assert any(l.startswith("**Ticket:**") for l in lines)
+    assert "## Acceptance criteria" in lines and "## Edge or failure case" in lines

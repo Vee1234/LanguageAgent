@@ -38,6 +38,17 @@ skill; the structure and template are in `docs/backlog.md`.
 ## 3. Build it
 
 - Create a branch `ticket-N-<short-name>` from the default branch, not from another ticket's branch.
+  The number in the name is how the PR body and the Stop hook find the ticket.
+- Move the ticket's card on the project board (projects/3) to **In progress**:
+  ```sh
+  N=<ticket>; P=3; O=Vee1234
+  pid=$(gh project view $P --owner $O --format json -q .id)
+  item=$(gh project item-list $P --owner $O --limit 200 --format json -q ".items[]|select(.content.number==$N).id")
+  field=$(gh project field-list $P --owner $O --format json -q '.fields[]|select(.name=="Status").id')
+  opt=$(gh project field-list $P --owner $O --format json -q '.fields[]|select(.name=="Status").options[]|select(.name=="In progress").id')
+  gh project item-edit --project-id "$pid" --id "$item" --field-id "$field" --single-select-option-id "$opt"
+  ```
+  If the ticket isn't on the board, add it first with `gh project item-add $P --owner $O --url <issue url>`.
 - Work test-first (AGENTS.md). Each `[code]` criterion and the edge case becomes a test that
   fails first, for the expected reason.
 - Follow the ticket's Standards and the approved lessons (use the `brainstorm` skill for any
@@ -45,11 +56,17 @@ skill; the structure and template are in `docs/backlog.md`.
 
 ## 4. Open the PR
 
-Open the PR with:
-- `Closes #N` and the ticket's link.
-- The acceptance criteria and edge case copied from the ticket, each ticked only once there's evidence for it.
-- Summary, Changes and Testing sections.
-- An empty **Review and verification** section, filled in at steps 5–7.
+Generate the description from the ticket. Never write `Closes #N` or the criteria by hand:
+
+```sh
+python3 scripts/backlog_order.py pr-body N > pr-body.md   # in the scratchpad, not the repo
+```
+
+The description fills `.github/pull_request_template.md` with `Closes #N`, the ticket's link, and
+its acceptance criteria and edge case, all unticked. Fill in Summary, Changes and Testing, then
+run `gh pr create --body-file pr-body.md`. Tick a criterion only once there's evidence for it.
+Leave **Review and verification** for steps 5–7. If `pr-body` says a section is "Not in the
+ticket", stop and fix the ticket first (step 2).
 
 ## 5. Review it
 

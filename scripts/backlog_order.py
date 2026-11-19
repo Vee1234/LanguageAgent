@@ -288,6 +288,42 @@ def order_backlog(issues: list[Issue], category_order: list[str]) -> Plan:
     return plan
 
 
+PR_TEMPLATE = BACKLOG_DOC.parent.parent / ".github" / "pull_request_template.md"
+
+
+def fill_pr_template(template: str, number: int, title: str, url: str, issue_body: str) -> str:
+    """The PR template with the ticket filled in: `Closes #N`, a link to the ticket, and its
+    acceptance criteria and edge case copied in, unticked. A section the ticket lacks shows as
+    missing rather than being left out (L8)."""
+    lines = template.splitlines()
+    if "Closes #" not in lines:
+        raise ValueError("the PR template has no 'Closes #' line, so the PR wouldn't close its ticket")
+    copied = {name: _criteria(issue_body, name, number) for name in ("Acceptance criteria", "Edge or failure case")}
+    out: list[str] = []
+    pending: list[str] | None = None  # criteria waiting to go in after the heading's comment
+    for line in lines:
+        if pending is not None and not line.strip().startswith("<!--"):
+            out += pending
+            pending = None
+        if line == "Closes #":
+            out.append(f"Closes #{number}")
+        elif line.startswith("**Ticket:**"):
+            out.append(f"**Ticket:** [#{number} {title}]({url})")
+        else:
+            out.append(line)
+            heading = re.match(r"^##\s+(.+?)\s*$", line)
+            if heading and heading.group(1) in copied:
+                pending = copied[heading.group(1)]
+    if pending is not None:
+        out += pending
+    return "\n".join(out) + "\n"
+
+
+def _criteria(issue_body: str, name: str, number: int) -> list[str]:
+    items = [re.sub(r"^(\s*[-*]\s*)\[[xX ]\]", r"\1[ ]", l) for l in _section(issue_body, name) if l.strip()]
+    return items or [f"- Not in the ticket: add it to #{number} before building."]
+
+
 # --- GitHub --------------------------------------------------------------------
 
 QUERY = """
@@ -374,6 +410,10 @@ def main(argv: list[str] | None = None) -> int:
     for flag in ("--stores-data", "--trust-boundary", "--shared-contract", "--external"):
         s.add_argument(flag, type=_yes, required=True)
 
+    b = sub.add_parser("pr-body", help="PR description for a ticket, from .github/pull_request_template.md")
+    b.add_argument("number", type=int)
+    b.add_argument("--repo", help="OWNER/NAME (default: this checkout's GitHub repo)")
+
     o = sub.add_parser("order", help="print the build order")
     o.add_argument("--repo", help="OWNER/NAME (default: this checkout's GitHub repo)")
     o.add_argument("--input", help="a saved GraphQL response instead of calling GitHub")
@@ -384,6 +424,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"change_cost": change_cost(
             stores_data=args.stores_data, trust_boundary=args.trust_boundary,
             shared_contract=args.shared_contract, external=args.external)}))
+        return 0
+
+    if args.cmd == "pr-body":
+        repo = args.repo or current_repo()
+        issue = json.loads(subprocess.run(
+            ["gh", "issue", "view", str(args.number), "-R", repo, "--json", "number,title,url,body"],
+            check=True, capture_output=True, text=True).stdout)
+        print(fill_pr_template(PR_TEMPLATE.read_text(), issue["number"], issue["title"], issue["url"], issue["body"])
+              + "\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")
         return 0
 
     issues = parse_graphql(json.loads(Path(args.input).read_text())) if args.input \
