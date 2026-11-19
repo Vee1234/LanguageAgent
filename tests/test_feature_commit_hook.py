@@ -47,3 +47,36 @@ def test_hook_refuses_to_commit_unapproved_lessons_in_a_clean_repo(tmp_path):
 def test_hook_also_guards_workflow_lessons(tmp_path):
     reason = run_hook_with_dirty(tmp_path, "docs/WorkflowLessons.md")
     assert "docs/WorkflowLessons.md has uncommitted changes: do NOT stage, commit or push it" in reason
+
+
+def run_hook_on_branch(tmp_path, branch: str) -> str:
+    subprocess.run(["git", "init", "-q", "-b", branch], cwd=tmp_path, check=True)
+    (tmp_path / "change.txt").write_text("dirty\n")
+    hook = tmp_path / HOOK
+    hook.parent.mkdir(parents=True)
+    shutil.copy(ROOT / HOOK, hook)
+    out = subprocess.run(["bash", str(hook)], input='{"stop_hook_active": false}', capture_output=True,
+                         text=True, cwd=tmp_path, env={**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)})
+    return json.loads(out.stdout)["reason"]
+
+
+def test_on_a_ticket_branch_the_pr_body_comes_from_the_ticket(tmp_path):
+    if shutil.which("gh") is None or subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
+        import pytest
+        pytest.skip("the PR step needs a logged-in gh")
+    reason = run_hook_on_branch(tmp_path, "ticket-42-shared-guard")
+    assert "python3 scripts/backlog_order.py pr-body 42" in reason
+    assert "Closes #42" in reason
+
+
+def test_on_another_branch_the_pr_body_is_written_as_before(tmp_path):
+    reason = run_hook_on_branch(tmp_path, "some-feature")
+    assert "pr-body" not in reason
+
+
+def test_an_existing_ticket_pr_is_updated_from_its_current_body(tmp_path):
+    if shutil.which("gh") is None or subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
+        import pytest
+        pytest.skip("the PR step needs a logged-in gh")
+    reason = run_hook_on_branch(tmp_path, "ticket-42-shared-guard")
+    assert "pr-body 42 --pr ticket-42-shared-guard" in reason
