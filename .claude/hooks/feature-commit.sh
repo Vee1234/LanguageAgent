@@ -6,23 +6,29 @@
 # Claude decides whether it is a finished feature and writes the commit message and PR description.
 
 input=$(cat)
-
-# Already continued once because of this hook: let Claude stop (prevents loops).
-if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false')" = "true" ]; then
-  exit 0
-fi
+active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false')
 
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}" || exit 0
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 dirty=$(git status --porcelain)
 ahead=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
+branch=$(git branch --show-current)
 
 if [ -z "$dirty" ] && [ "$ahead" = "0" ]; then
+  # Everything is committed and pushed. On a ticket branch, the factory gate decides whether the
+  # ticket is finished. It blocks again only when its state changed, so this can't loop forever
+  # even when Claude is already continuing because of this hook.
+  if printf '%s' "$branch" | grep -Eq '^ticket-[0-9]+-' && [ -f scripts/factory.py ]; then
+    python3 scripts/factory.py gate --hook 2>/dev/null || true
+  fi
   exit 0
 fi
 
-branch=$(git branch --show-current)
+# Already continued once because of this hook: let Claude stop (prevents loops).
+if [ "$active" = "true" ]; then
+  exit 0
+fi
 
 # --- Run the test suites -------------------------------------------------
 failures=""
@@ -66,7 +72,9 @@ This is ticket #$ticket's branch: generate the body with 'python3 scripts/backlo
 (it fills .github/pull_request_template.md with Closes #$ticket, the ticket link and its acceptance criteria), \
 then fill in its Summary, Changes and Testing sections. If there is no PR, create it with \
 'gh pr create --base $default_branch --head $branch --title <title> --body-file <file>'. \
-If one exists, update it with 'gh pr edit $branch --body-file <file>', keeping Closes #$ticket, the criteria already ticked and the Review and verification section."
+If one exists, never start from the template again: run 'python3 scripts/backlog_order.py pr-body $ticket --pr $branch > <file>', \
+which keeps its ticked criteria, their evidence and the Review and verification section and adds any criteria the ticket gained, \
+update Summary, Changes and Testing in that file, then 'gh pr edit $branch --body-file <file>'."
 fi
 
 if [ "$branch" = "$default_branch" ]; then

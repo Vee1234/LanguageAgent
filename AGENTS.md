@@ -114,9 +114,13 @@ Docs-only and config-only changes don't need tests.
 
 5. **Product only: don't review the personal learning and development workflow.**
    - **Applies to:** `.claude/**`, `BugReview/**`, `LessonsLearned.md`, `docs/WorkflowLessons.md`,
-     `docs/LearningRubric.md`, `docs/backlog.md`, `docs/HackathonLog.md`, `scripts/qodo_review.py`, `scripts/learning_score.py`,
-     `scripts/backlog_order.py`, `tests/test_qodo_review.py`, `tests/test_learning_score.py`,
-     `tests/test_feature_commit_hook.py`, `tests/test_backlog_order.py`.
+     `docs/LearningRubric.md`, `docs/backlog.md`, `docs/HackathonLog.md`, `docs/factory.md`,
+     `docs/review-ledger.jsonl`, `scripts/review_triage.py`, `scripts/ticket_analysis.py`,
+     `scripts/factory.py`, `tests/test_review_triage.py`, `tests/test_ticket_analysis.py`,
+     `tests/test_factory.py`, `tests/test_factory_hooks.py`, `scripts/qodo_review.py`,
+     `scripts/learning_score.py`, `scripts/backlog_order.py`, `tests/test_qodo_review.py`,
+     `tests/test_learning_score.py`, `tests/test_feature_commit_hook.py`,
+     `tests/test_backlog_order.py`.
    - **Rule:** Don't leave review comments, suggestions or findings on these files. Focus reviews on
      the product: `app/`, `supabase/` and the Python card modules.
    - **Why:** These files are the maintainer's own tooling for learning and building (skills, hooks,

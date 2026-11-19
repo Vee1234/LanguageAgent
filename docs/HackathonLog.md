@@ -126,6 +126,27 @@ the review found into the rules, skills or review setup before the next ticket.
   the feedback reached the fix; and noting what the review missed or got wrong. Evidence:
   `.claude/skills/ticket-resolver/`.
 
+- **The factory cycle runs until a gate passes.** The flow is ticket created → PR → ticket
+  analysis → ticket resolver, repeated until the analysis passes on the head commit, Qodo has
+  reviewed that commit, and no finding at or above relevance 2 is left unresolved. A push hook
+  starts the Qodo wait, and the Stop hook runs the gate and blocks until it passes. The gate only
+  blocks again when something changed, so a stuck state can't loop. Evidence: `docs/factory.md`,
+  `scripts/factory.py`, `.claude/hooks/after-push.sh`.
+- **Ticket analysis is its own skill and script.** It compares the PR with the ticket word for
+  word, runs the tests each `[code]` criterion names, and requires `seen:` or `user:` evidence for
+  `[use]` criteria, with `user:` required for the phone. Evidence: `.claude/skills/ticket-analysis/`,
+  `scripts/ticket_analysis.py`.
+- **Deterministic relevance, then verdicts from a fixed list.** A finding's relevance (0–5) comes
+  only from its Fix Focus Areas files, the review standards' paths, the PR diff and the severity.
+  Verdicts are `confirmed` (needs a regression test), `not-a-bug` (with a reason code) or
+  `out-of-scope` (with a new ticket). They're recorded in a versioned ledger whose tags must be
+  approved lessons, standards or `new:` slugs. Counting the ledger decides what feedback points
+  to: a tag in 2 tickets points to a rule, in 3 or more to a skill, and "missing context" to
+  review context. Evidence: `scripts/review_triage.py`, `docs/review-ledger.jsonl`.
+- **PR descriptions are updated, never regenerated** (Qodo finding "PR updates erase completed
+  checks"). `pr-body N --pr <PR>` keeps ticked criteria, their evidence and the review record,
+  and adds any criteria the ticket gained. Evidence: `merge_pr_body` in `scripts/backlog_order.py`.
+
 ### Limitations
 - Nearly every ticket depends on #6 (release the shared cache), which needs the user's Supabase
   login. Dependencies are all-or-nothing: there's no way to say a dependency is needed only for
@@ -137,7 +158,12 @@ the review found into the rules, skills or review setup before the next ticket.
 - The change-cost answers are judgments. The script only makes the ordering consistent.
 - The ordering script warns when a later category blocks an earlier one, but not when one
   ticket is needed by many later categories (as #35 was).
-- Qodo hasn't reviewed PR #21 yet, and no ticket has gone through the factory yet.
+- Standard 5 gives findings on workflow files relevance 0, so real tooling bugs never block the gate.
+  On PR #21, all three findings that name files scored 0, including "PR updates erase completed
+  checks", which was real and was fixed by hand.
+- Qodo still reviews standard-5 files on PR #21, because the exclusions only apply once they're on
+  `master`. The feedback command reports this as missing review context.
+- The cycle hasn't run end to end on a real ticket yet.
 
 ### Additional features
 - The ordering script marks the next ticket to build (▶), detects dependency cycles, and flags
