@@ -240,3 +240,104 @@ Docs-only.
 
 ## Proposed workflow lesson
 W4 (on planning tools reporting every item they can't place) was proposed and **rejected by the user on 2026-11-19**. No lesson was added.
+
+# Round 2 (PR #21 at `5eb2d80`)
+
+Three medium findings, all workflow, each scored **1/5 (agent)**. Bugs 9 and 10 are again in
+`.claude/**`, which standard 5 says Qodo shouldn't review.
+
+## Bug 8: An old PR can hide an active review
+**Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
+
+### Learning score
+Gate: workflow, since it's backlog tooling. Score 1.
+
+### Reported issue
+Only the first 10 PRs that close an issue are read, so an open PR beyond them goes unseen.
+
+### Root cause
+`scripts/backlog_order.py:337`: `closedByPullRequestsReferences(first: 10, …)` has no `pageInfo` check. Failure scenario:
+a ticket with 10 closed attempts and an 11th, open PR isn't marked "in review", so it's marked ▶
+and built a second time.
+
+### Solutions considered
+1. **Read up to 100 and fail loudly, naming the issue, if there are more** (the same approach as bug 5). Pros: consistent; tiny. Cons: one such issue stops the whole order.
+2. **Paginate the connection for that issue.** Pros: complete. Cons: an extra query path for an extremely rare case.
+
+### Chosen solution
+Option 1, for consistency with bug 5's fix.
+
+### Biggest weakness
+It's a repeat of bug 5: each new GitHub connection added to the query needs the same check, and nothing enforces it yet.
+
+### Implementation (TDD)
+- **Red:** `test_truncated_closing_prs_fail_loudly` failed with `DID NOT RAISE <class 'ValueError'>`.
+- **Green:** `first: 100` plus `pageInfo { hasNextPage }`; `parse_graphql` raises `ValueError` naming the issue. pytest `92 passed`.
+- **Refactor:** none needed.
+
+### Lesson learned
+> Proposed W5 (see the end of this round).
+
+## Bug 9: Unpushed ticket work goes undetected
+**Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
+
+### Learning score
+Gate: workflow, since it's a skill doc. Score 1.
+
+### Reported issue
+The prior-work check only looks at remote branches.
+
+### Root cause
+`.claude/skills/ticket-resolver/SKILL.md:19`: only `git ls-remote`. Failure scenario: work on a local
+`ticket-12-…` that was never pushed is missed, a second branch is created, and the agent may switch away with uncommitted changes.
+
+### Solutions considered
+1. **Also check `git branch --list`, and require a clean `git status` before switching.** Pros: covers both. Cons: still relies on the agent following the doc.
+2. **A script that does the prior-work check.** Pros: testable. Cons: more code than the case needs today.
+
+### Chosen solution
+Option 1. Never deleting a local branch without asking protects the only copy of unpushed work.
+
+### Biggest weakness
+Docs only; branches not named `ticket-N-*` are still missed.
+
+### Implementation (TDD)
+Docs-only.
+
+### Lesson learned
+> None.
+
+## Bug 10: Completed tickets can be rebuilt on request
+**Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
+
+### Learning score
+Gate: workflow, since it's a skill doc. Score 1.
+
+### Reported issue
+A merged PR for the ticket has no instruction, so a named, finished ticket can be built again.
+
+### Root cause
+`.claude/skills/ticket-resolver/SKILL.md:20-24`: cases for an open PR, a closed-unmerged PR and a
+bare branch, but none for a merged PR. `gh pr list --state all` returns merged PRs too.
+
+### Solutions considered
+1. **A "Merged PR" case: report it as resolved and stop; a follow-up goes through `backlog-order`.** Also match `CLOSED` vs `MERGED` explicitly. Pros: closes the gap. Cons: none worth noting.
+2. **Rely on the ticket being closed.** Cons: a reopened ticket or `Closes` in a non-default branch breaks it.
+
+### Chosen solution
+Option 1.
+
+### Biggest weakness
+Docs only.
+
+### Implementation (TDD)
+Docs-only.
+
+### Lesson learned
+> None.
+
+## Low finding (not fixed)
+- *Ticket text can steer the agent's build* (low): listed for the user, not fixed.
+
+## Proposed workflow lesson (round 2)
+> **W5** (Day 3, tooling): Every capped GitHub connection a script reads must request its `pageInfo` and fail, naming the item, when there is more than one page; a first page is never the whole set. ⏳ pending approval
