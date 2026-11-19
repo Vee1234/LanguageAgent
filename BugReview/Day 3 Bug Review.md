@@ -276,7 +276,7 @@ It's a repeat of bug 5: each new GitHub connection added to the query needs the 
 - **Refactor:** none needed.
 
 ### Lesson learned
-> Proposed W5 (see the end of this round).
+> None: proposed W5 was rejected by the user.
 
 ## Bug 9: Unpushed ticket work goes undetected
 **Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
@@ -340,4 +340,4 @@ Docs-only.
 - *Ticket text can steer the agent's build* (low): listed for the user, not fixed.
 
 ## Proposed workflow lesson (round 2)
-> **W5** (Day 3, tooling): Every capped GitHub connection a script reads must request its `pageInfo` and fail, naming the item, when there is more than one page; a first page is never the whole set. ⏳ pending approval
+W5 (capped GitHub connections must check `pageInfo`) was proposed and **rejected by the user on 2026-11-19**. No lesson was added.
