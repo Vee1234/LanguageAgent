@@ -79,7 +79,7 @@ If a triage ticket is a blocker, everything behind it disappears from the order 
 - **Refactor:** none needed.
 
 ### Lesson learned
-> Proposed W4 (see the end of this file).
+> None: proposed W4 was rejected by the user.
 
 ## Bug 3: A closed parent with open sub-issues satisfies a dependency
 **Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
@@ -114,7 +114,7 @@ Abandoning a parent now needs its sub-issues closed too, otherwise its dependant
 - **Refactor:** none needed.
 
 ### Lesson learned
-> Covered by proposed W4, so no separate lesson.
+> None.
 
 ## Bug 4: A ticket that lists itself can be picked next
 **Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
@@ -147,7 +147,7 @@ The Stuck section doesn't say *why* a single ticket is stuck; the reader has to 
 - **Refactor:** none needed.
 
 ### Lesson learned
-> Covered by proposed W4.
+> None.
 
 ## Bug 5: Labels beyond the first 20 are silently dropped
 **Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
@@ -180,7 +180,7 @@ It fails instead of degrading: one over-labelled issue blocks ordering until its
 - **Refactor:** none needed.
 
 ### Lesson learned
-> Covered by proposed W4.
+> None.
 
 ## Bug 6: New repositories can't file scored tickets
 **Source:** Qodo review (PR #21) · **Severity:** Medium · **Learning score:** 1/5 (agent)
@@ -239,4 +239,4 @@ Docs-only.
 > None.
 
 ## Proposed workflow lesson
-> **W4** (Day 3, tooling): A planning tool must account for every open item it was given: anything it can't place safely (unread, blocked, or self-referencing) is reported by name with its reason, never ordered, dropped or treated as done. ⏳ pending approval
+W4 (on planning tools reporting every item they can't place) was proposed and **rejected by the user on 2026-11-19**. No lesson was added.
