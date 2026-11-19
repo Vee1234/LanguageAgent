@@ -1,6 +1,6 @@
 ---
 name: backlog-order
-description: Sort and structure this repo's GitHub backlog. Use when asked what to build next, to order or prioritise tickets, to file, split or score a ticket, to place a ticket under an epic, or to pick up the next ticket from the backlog. Orders tickets foundations first (core, then features in a set order) and, within each category, the ticket most painful to change later first.
+description: Sort and structure this repo's GitHub backlog. Use when asked what to build next, to order or prioritise tickets, to file, split or score a ticket, or to place a ticket under an epic. Building and reviewing a ticket is the ticket-resolver skill. Orders tickets foundations first (core, then features in a set order) and, within each category, the ticket most painful to change later first.
 ---
 
 # Backlog order
@@ -52,10 +52,5 @@ gh label create epic; gh label create category:lyrics
 
 ## Pick up the next ticket
 
-1. Take the **▶** ticket from the order. If it has an unanswered decision, or needs the
-   user's own accounts or phone (deploys, store setup), say so and stop.
-2. Read it in full with `gh issue view N`, and check that its dependencies are closed.
-3. Create a branch `ticket-N-<short-name>` from the default branch, and build it test-first
-   (see AGENTS.md), within the ticket's **Out of scope** line.
-4. Open the PR with `Closes #N`, the ticket's link, and its acceptance criteria copied in,
-   each ticked only once a test or a check on the phone shows it.
+Use the `ticket-resolver` skill: it builds, reviews and checks one ticket at a time, and uses the
+feedback before the next one.

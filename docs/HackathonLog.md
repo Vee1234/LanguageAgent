@@ -117,6 +117,15 @@ the review found into the rules, skills or review setup before the next ticket.
   issues placed under them. The shared Gemini guard (#35) moved into `core` because nine tickets
   across four features need it.
 
+- **Two skills: one creates tickets, one resolves them.** `backlog-order` creates, splits,
+  scores and orders tickets. `ticket-resolver` takes one ticket at a time through seven steps:
+  pick, read, build test-first on its own branch, open a PR with the ticket and its criteria,
+  run the Qodo review, check every criterion and an edge case, and use the feedback before the
+  next ticket. Using the feedback means fixing confirmed problems and repeating the checks;
+  deciding whether a finding calls for a rule, a skill or more review context; checking that
+  the feedback reached the fix; and noting what the review missed or got wrong. Evidence:
+  `.claude/skills/ticket-resolver/`.
+
 ### Limitations
 - Nearly every ticket depends on #6 (release the shared cache), which needs the user's Supabase
   login. Dependencies are all-or-nothing: there's no way to say a dependency is needed only for
@@ -134,5 +143,6 @@ the review found into the rules, skills or review setup before the next ticket.
 - The ordering script marks the next ticket to build (▶), detects dependency cycles, and flags
   blockers pulled ahead of their category.
 - `backlog_order.py score` turns the four rubric answers into a cost.
-- The skill includes a "pick up the next ticket" flow: branch `ticket-N-…`, then a PR with
-  `Closes #N` and the acceptance criteria.
+- Each PR gets a **Review and verification** section, laid out like the Day 3 discussion post:
+  criteria with evidence, the edge case, the Qodo findings and how each was classified, what the
+  review missed, what reached the fix, and follow-up changes.
