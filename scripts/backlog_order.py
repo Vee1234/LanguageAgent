@@ -131,6 +131,9 @@ def parse_graphql(resp: dict) -> list[Issue]:
         if (n["labels"].get("pageInfo") or {}).get("hasNextPage"):
             raise ValueError(f"#{n['number']} has more labels than the query reads; "
                              "its category and change cost can't be trusted")
+        if ((n.get("closedByPullRequestsReferences") or {}).get("pageInfo") or {}).get("hasNextPage"):
+            raise ValueError(f"#{n['number']} has more closing PRs than the query reads; "
+                             "an open PR could be missed, so it can't be ordered")
     return [
         Issue(
             number=n["number"],
@@ -334,7 +337,7 @@ query($owner: String!, $name: String!, $after: String) {
         number title state body
         labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
         parent { number }
-        closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number state } }
+        closedByPullRequestsReferences(first: 100, includeClosedPrs: true) { nodes { number state } pageInfo { hasNextPage } }
       }
       pageInfo { hasNextPage endCursor }
     }

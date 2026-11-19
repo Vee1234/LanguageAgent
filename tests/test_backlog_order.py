@@ -386,3 +386,16 @@ def test_the_repo_pr_template_has_the_lines_pr_body_fills():
     assert "Closes #" in lines
     assert any(l.startswith("**Ticket:**") for l in lines)
     assert "## Acceptance criteria" in lines and "## Edge or failure case" in lines
+
+
+def test_truncated_closing_prs_fail_loudly():
+    import pytest
+    node = {
+        "number": 9, "title": "T", "state": "OPEN", "body": "", "parent": None,
+        "labels": {"nodes": []},
+        "closedByPullRequestsReferences": {"nodes": [{"number": 70, "state": "CLOSED"}],
+                                           "pageInfo": {"hasNextPage": True}},
+    }
+    resp = {"data": {"repository": {"issues": {"nodes": [node], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
+    with pytest.raises(ValueError, match="#9"):
+        parse_graphql(resp)
