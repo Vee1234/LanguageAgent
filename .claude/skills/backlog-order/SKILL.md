@@ -14,7 +14,8 @@ so the same backlog always gives the same order.
 
 1. Run `python3 scripts/backlog_order.py order` (it calls `gh`; add `--json` for raw data).
 2. Report the build order, marking the **▶ next** ticket, then each section the script printed:
-   **Needs triage**, **Stuck** (a dependency cycle) and **Warnings**. Don't reorder anything
+   **Needs triage**, **Blocked** (waiting on a ticket that isn't ordered), **Stuck** (a
+   dependency cycle) and **Warnings**. Don't reorder anything
    yourself or explain away a warning.
 3. For each triage ticket, propose the fix: its epic, or its change-cost answers (below).
    For each "pulled ahead" warning, say whether the ticket should move to the earlier category.
@@ -30,15 +31,19 @@ so the same backlog always gives the same order.
    its feature's epic. Put it in `## Depends on` as `- #N` lines, one per ticket.
 3. **Score it.** Answer the four rubric questions, each with a one-line reason, then run
    `python3 scripts/backlog_order.py score --stores-data … --trust-boundary … --shared-contract … --external …`.
-   Put the answers in the ticket's `## Change cost` section and add the `change-cost:N` label.
+   Put the answers in the ticket's `## Change cost` section and give it the `change-cost:N` label.
+   When rescoring, remove the old `change-cost:` label in the same edit: a ticket with two goes to triage.
    If a question is unclear, ask the user. Never pick an answer to get a particular order.
 4. **Show the user the draft** (title, parent, body, labels) before creating or editing it on GitHub.
 
 GitHub commands:
 
 ```sh
+# Once per repo (safe to rerun: --force updates a label that already exists):
+for n in 1 2 3 4 5; do gh label create "change-cost:$n" --force; done
 gh issue create --title "…" --body-file body.md --label change-cost:3
-gh issue edit 42 --add-label change-cost:5
+# Rescore: check the current label (gh issue view 42 --json labels), then swap it:
+gh issue edit 42 --remove-label change-cost:3 --add-label change-cost:5
 # Make #42 a sub-issue of #7 (the API takes the child's internal id, not its number):
 gh api -X POST repos/{owner}/{repo}/issues/7/sub_issues -F sub_issue_id="$(gh api repos/{owner}/{repo}/issues/42 -q .id)"
 # A new epic needs its labels:
