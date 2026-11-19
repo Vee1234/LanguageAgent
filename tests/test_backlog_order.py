@@ -270,3 +270,51 @@ def test_the_real_backlog_doc_starts_with_core_and_lists_every_category():
     order = parse_category_order(BACKLOG_DOC.read_text())
     assert order[0] == "core"
     assert len(order) == len(set(order)) == 10
+
+
+# --- tickets with pull requests ------------------------------------------------
+
+def with_prs(issue, open_prs=(), closed_prs=()):
+    issue.open_prs, issue.closed_prs = list(open_prs), list(closed_prs)
+    return issue
+
+
+def test_a_ticket_with_an_open_pr_is_in_review_and_never_next():
+    issues = [epic(1, "core"), with_prs(ticket(10, 1, cost=5), open_prs=[77]), ticket(11, 1, cost=1)]
+    plan = order_backlog(issues, ORDER)
+    assert numbers(plan) == [10, 11]
+    assert plan.order[0].in_review == [77]
+    assert plan.next == 11
+
+
+def test_work_that_depends_on_a_ticket_in_review_is_not_next():
+    issues = [epic(1, "core"), with_prs(ticket(10, 1, cost=5), open_prs=[77]), ticket(11, 1, cost=1, deps=[10])]
+    plan = order_backlog(issues, ORDER)
+    assert plan.next is None
+
+
+def test_a_pr_closed_without_merging_is_reported_on_its_ticket():
+    from scripts.backlog_order import render
+    issues = [epic(1, "core"), with_prs(ticket(10, 1, cost=5), closed_prs=[78])]
+    plan = order_backlog(issues, ORDER)
+    assert plan.order[0].closed_prs == [78]
+    assert "#78 closed without merging" in render(plan)
+
+
+def test_in_review_is_shown_in_the_listing():
+    from scripts.backlog_order import render
+    issues = [epic(1, "core"), with_prs(ticket(10, 1, cost=5), open_prs=[77])]
+    assert "in review: PR #77" in render(order_backlog(issues, ORDER))
+
+
+def test_graphql_reads_open_and_closed_unmerged_prs_but_not_merged_ones():
+    node = {
+        "number": 8, "title": "T", "state": "OPEN", "body": "",
+        "labels": {"nodes": []}, "parent": None,
+        "closedByPullRequestsReferences": {"nodes": [
+            {"number": 77, "state": "OPEN"}, {"number": 78, "state": "CLOSED"}, {"number": 79, "state": "MERGED"},
+        ]},
+    }
+    resp = {"data": {"repository": {"issues": {"nodes": [node], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}
+    issue = parse_graphql(resp)[0]
+    assert (issue.open_prs, issue.closed_prs) == ([77], [78])

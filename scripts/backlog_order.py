@@ -36,6 +36,8 @@ class Issue:
     labels: list[str]
     parent: int | None
     body: str
+    open_prs: list[int] = field(default_factory=list)    # open PRs that will close it
+    closed_prs: list[int] = field(default_factory=list)  # PRs for it closed without merging
 
 
 @dataclass
@@ -46,6 +48,8 @@ class Entry:
     cost: int
     dependants: int        # open tickets that need this one, directly or indirectly
     blocked_by: list[int]  # open tickets this one still needs
+    in_review: list[int] = field(default_factory=list)   # its open PRs: built, waiting on review or merge
+    closed_prs: list[int] = field(default_factory=list)  # its PRs closed without merging
 
 
 @dataclass
@@ -135,9 +139,17 @@ def parse_graphql(resp: dict) -> list[Issue]:
             labels=[label["name"] for label in n["labels"]["nodes"]],
             parent=(n.get("parent") or {}).get("number"),
             body=n.get("body") or "",
+            open_prs=_prs(n, "OPEN"),
+            closed_prs=_prs(n, "CLOSED"),
         )
         for n in nodes
     ]
+
+
+def _prs(node: dict, state: str) -> list[int]:
+    """PRs that close this issue, in one state (OPEN, CLOSED = closed unmerged; MERGED is ignored)."""
+    refs = (node.get("closedByPullRequestsReferences") or {}).get("nodes") or []
+    return sorted(pr["number"] for pr in refs if pr["state"] == state)
 
 
 # --- ordering ------------------------------------------------------------------
@@ -262,7 +274,8 @@ def order_backlog(issues: list[Issue], category_order: list[str]) -> Plan:
     heapq.heapify(ready)
     while ready:
         *_, n = heapq.heappop(ready)
-        plan.order.append(Entry(n, by_num[n].title, category[n], cost[n], len(dependants[n]), deps[n]))
+        plan.order.append(Entry(n, by_num[n].title, category[n], cost[n], len(dependants[n]), deps[n],
+                                by_num[n].open_prs, by_num[n].closed_prs))
         for d in sorted(needed_by[n]):
             waiting[d] -= 1
             if waiting[d] == 0:
@@ -270,7 +283,8 @@ def order_backlog(issues: list[Issue], category_order: list[str]) -> Plan:
 
     placed = {e.number for e in plan.order}
     plan.cycle = sorted(scheduled - placed)
-    plan.next = next((e.number for e in plan.order if not e.blocked_by), None)
+    # Next: nothing open blocks it and it isn't already built and waiting in a PR.
+    plan.next = next((e.number for e in plan.order if not e.blocked_by and not e.in_review), None)
     return plan
 
 
@@ -284,6 +298,7 @@ query($owner: String!, $name: String!, $after: String) {
         number title state body
         labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
         parent { number }
+        closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number state } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -323,6 +338,10 @@ def render(plan: Plan) -> str:
         line = f"{i}. {mark}#{e.number} [{e.category}] {e.title} (change cost {e.cost}, {e.dependants} depend on it)"
         if e.blocked_by:
             line += " · waits for " + ", ".join(f"#{d}" for d in e.blocked_by)
+        if e.in_review:
+            line += " · in review: " + ", ".join(f"PR #{p}" for p in e.in_review)
+        if e.closed_prs:
+            line += " · " + ", ".join(f"PR #{p}" for p in e.closed_prs) + " closed without merging"
         out.append(line)
     if plan.triage:
         out += ["", "## Needs triage (not ordered)", ""]

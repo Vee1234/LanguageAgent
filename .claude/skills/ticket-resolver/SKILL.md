@@ -12,7 +12,18 @@ skill; the structure and template are in `docs/backlog.md`.
 ## 1. Pick the ticket
 
 - Use the ticket the user names. Otherwise take the **▶** ticket from
-  `python3 scripts/backlog_order.py order`.
+  `python3 scripts/backlog_order.py order`. The script never marks a ticket ▶ while it has an
+  open PR (it's listed as "in review"), or while it waits on one.
+- **Never build a ticket twice.** Before creating a branch, check for earlier work:
+  `gh pr list --state all --search '"Closes #N" in:body'` (check each result really closes #N, not
+  #N0) and `git ls-remote --heads origin "ticket-N-*"`.
+  - **Open PR:** don't start again. Resume that PR at step 5, on its branch.
+  - **PR closed without merging** (the order shows "closed without merging"): ask the user
+    why before doing anything. It may have been rejected, replaced, or need redoing in another way.
+    Rebuild only if they say so, and link the old PR in the new one.
+  - **A branch with no PR:** ask the user whether to continue it or delete it.
+- If no ticket is ▶ (everything left is in review or waits on a ticket in review), say so and
+  stop. Don't pick around the order.
 - Stop and say so if the ticket is a decision only the user can make, or needs the user's own
   accounts or phone (deploys, Supabase, store setup).
 
@@ -88,7 +99,9 @@ problem, even if the review didn't mention it.
    without being flagged) and findings that were irrelevant.
 5. **Record it** in the PR's Review and verification section, using the template below, and
    add the day's decisions and limitations to the hackathon log (`hackathon-log` skill).
-6. **Move on.** Merging the PR is the user's call, and it closes the ticket. Then go back to step 1.
+6. **Move on.** Merging the PR is the user's call, and it closes the ticket. Tell the user the PR
+   is ready and go back to step 1. While the PR is open, step 1 shows the ticket as in review,
+   so the next ▶ is other work, or nothing.
 
 ### Review and verification template
 

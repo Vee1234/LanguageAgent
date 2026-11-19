@@ -88,7 +88,9 @@ label goes to **Needs triage**. It isn't ordered and isn't given a default (L8).
 A ticket that depends on open work that isn't ordered (in triage, or itself blocked) goes to
 **Blocked**, with what it waits for. A ticket that lists itself in `## Depends on` is **Stuck**.
 Code blocks in a ticket are examples: nothing inside them is read as a dependency.
-The first ordered ticket with nothing open blocking it is marked **▶**: that's the next one to build.
+The first ordered ticket with nothing open blocking it and no open PR is marked **▶**: that's the
+next one to build. A ticket with an open PR (one that says `Closes #N`) is shown as **in review**; one
+whose PR was closed without merging is flagged so the user can decide what happens to it.
 
 ## Category order
 
