@@ -10,7 +10,7 @@ How I checked the agent could list and read my tickets: The agent ran `gh issue 
 ## Ticket → branch → PR
 Ticket link: https://github.com/Vee1234/LanguageAgent/issues/6 (Release the shared cache: run the migration and deploy generate-word)
 Branch and PR link: Not recorded
-Acceptance criteria checked, with observed results and evidence: Not recorded
+Acceptance criteria checked, with observed results and evidence: Before building, the user dropped the two data-survival criteria (Table Editor check, old words still in My words): existing data doesn't need to survive. #6 was rewritten to match on 2026-11-23, so "done" is defined by the ticket, not by skipped checks.
 Relevant edge or failure case and result: Not recorded
 Qodo findings I investigated, including any missed or irrelevant feedback: Not recorded
 What reached the coding agent and what changed in the fix: Not recorded
