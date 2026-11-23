@@ -2,12 +2,13 @@
 <!-- Draft of the Day 3 comment for https://github.com/orgs/qodo-hackathon/discussions/5. Fill it with scripts/discussion_post.py as the work happens; post it only after the user approves the text. -->
 
 ## My ticketing connection
-Ticketing system: Not recorded
-Connection used (MCP or CLI): Not recorded
-How I checked the agent could list and read my tickets: Not recorded
+Ticketing system: GitHub Issues: epics → issues → sub-issues, ordered by `scripts/backlog_order.py`, on a GitHub Projects board (projects/3).
+Connection used (MCP or CLI): CLI: the GitHub CLI (`gh issue list`, `gh issue view`, and `gh api graphql` inside the ordering script).
+How I checked the agent could list and read my tickets: The agent ran `gh issue list --state open` (58 open tickets, e.g. #64 Register ranking practice screen) and `gh issue view 6`, which read back #6's goal, dependencies, standards, acceptance criteria, edge case and Out of scope line. `backlog_order.py order` then ordered the whole backlog and marked #6 ▶.
 
+<!-- ticket #6 -->
 ## Ticket → branch → PR
-Ticket link: Not recorded
+Ticket link: https://github.com/Vee1234/LanguageAgent/issues/6 (Release the shared cache: run the migration and deploy generate-word)
 Branch and PR link: Not recorded
 Acceptance criteria checked, with observed results and evidence: Not recorded
 Relevant edge or failure case and result: Not recorded
