@@ -125,3 +125,15 @@ def test_the_post_drops_the_draft_notes_but_keeps_not_recorded():
     post = render_post(add_ticket(draft(), 35))
     assert "<!--" not in post
     assert "Branch and PR link: Not recorded" in post
+
+
+def test_a_value_line_with_a_colon_is_not_mistaken_for_a_field():
+    d = set_field(draft(), "Ticketing system", "GitHub\n- note: with a colon\n- more")
+    d = set_field(d, "Ticketing system", "GitHub Issues")
+    assert "note: with a colon" not in d
+    assert "- more" not in d
+
+
+def test_a_list_value_starts_on_the_line_after_its_label():
+    d = set_field(draft(), "Ticketing system", "- one\n- two")
+    assert "Ticketing system:\n- one\n- two" in render_post(d)

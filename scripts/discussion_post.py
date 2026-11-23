@@ -70,7 +70,8 @@ def _sections(template: str) -> list[tuple[str, list[str]]]:
 def new_draft(template: str, day: int, url: str) -> str:
     secs = _sections(template)
     repeat = next(((h, labels) for h, labels in secs if re.search(r"\bticket\b", h, re.I)), (None, []))
-    meta = {"day": day, "url": url, "repeat": repeat[0], "repeat_labels": repeat[1]}
+    meta = {"day": day, "url": url, "repeat": repeat[0], "repeat_labels": repeat[1],
+            "labels": [label for _, labels in secs for label in labels]}
     out = [f"<!-- discussion-post {json.dumps(meta, ensure_ascii=False)} -->",
            f"<!-- Draft of the Day {day} comment for {url}. Fill it with scripts/discussion_post.py "
            "as the work happens; post it only after the user approves the text. -->"]
@@ -92,14 +93,12 @@ def _meta(lines: list[str]) -> dict:
 
 
 def _labels(lines: list[str]) -> list[str]:
-    """Every label in the draft, read from the field lines' known prefixes."""
+    """The template's field labels, as recorded in the draft's header. Never guessed from the
+    lines themselves: a value line can contain a colon too."""
     meta = _meta(lines)
-    labels = set(meta["repeat_labels"])
-    for line in lines:
-        m = re.match(r"^(.*?[:?])(?: |$)", line)
-        if m and not _HEADING.match(line) and not line.startswith("<!--"):
-            labels.add(m.group(1))
-    return sorted(labels, key=len, reverse=True)
+    if "labels" not in meta:
+        raise ValueError("this draft predates the label list in its header: start it again with `init --force`")
+    return sorted(set(meta["labels"]), key=len, reverse=True)
 
 
 def _match(key: str, labels: list[str]) -> str | None:
@@ -167,7 +166,10 @@ def set_field(draft: str, key: str, value: str, ticket: int | None = None, appen
     new = value.strip("\n").split("\n")
     if append and current != [MISSING]:
         new = current + new
-    lines[i:j] = [f"{label} {new[0]}".rstrip()] + new[1:]
+    if new[0].lstrip().startswith(("- ", "* ")):
+        lines[i:j] = [label] + new  # a list starts on its own line
+    else:
+        lines[i:j] = [f"{label} {new[0]}".rstrip()] + new[1:]
     return "\n".join(lines) + "\n"
 
 
