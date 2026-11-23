@@ -74,7 +74,7 @@ describe("userEdits", () => {
 describe("cardFields (#36)", () => {
   const n = (kind: string, body: string) => ({ kind, body });
 
-  it("returns definition, register, emotional_colour and example, each with a value or marked missing", () => {
+  it("returns the four required fields each with a value or marked missing", () => {
     const fields = cardFields([n("definition", "Bâtiment."), n("example", "Je rentre à la maison.")]);
     const required = Object.fromEntries(fields.filter((f) => f.required).map((f) => [f.key, f]));
     expect(Object.keys(required).sort()).toEqual(["definition", "emotional_colour", "example", "register"]);
