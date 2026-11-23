@@ -9,7 +9,7 @@ How I checked the agent could list and read my tickets: The agent ran `gh issue 
 <!-- ticket #6 -->
 ## Ticket → branch → PR
 Ticket link: https://github.com/Vee1234/LanguageAgent/issues/6 (Release the shared cache: run the migration and deploy generate-word)
-Branch and PR link: Not recorded
+Branch and PR link: `ticket-6-release-shared-cache` → https://github.com/Vee1234/LanguageAgent/pull/68 (Closes #6; criteria and edge case copied in by `backlog_order.py pr-body 6`, ticked only with evidence: 2 of 3, criterion 2 left open).
 Acceptance criteria checked, with observed results and evidence: Before building, the user dropped the two data-survival criteria (Table Editor check, old words still in My words): existing data doesn't need to survive. #6 was rewritten to match on 2026-11-23, so "done" is defined by the ticket, not by skipped checks.
 - [x] [use] After the deploy, a new word appears in My words: added **chien** (French). My words shows it (2 words) with a complete card: definition, example, register Casual, emotional colour, when it's used, notable use and lyric (screenshot, 2026-11-23 21:44). Checked in the browser on the Mac against the deployed function, not yet on the phone as the criterion says.
   The first phone attempt failed: Gemini returned 503 (overloaded) and the app showed a dead-end "Gemini request failed". A retry a few minutes later worked. The phone check caught a gap the tests didn't: no retry on a transient Gemini outage, filed as #67 (https://github.com/Vee1234/LanguageAgent/issues/67, under core, waits for #35).
