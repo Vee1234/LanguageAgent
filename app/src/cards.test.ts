@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toWordList, userEdits, type UserCardRow } from "./cards";
+import { cardFields, toWordList, userEdits, type UserCardRow } from "./cards";
 
 const row = (over: Partial<UserCardRow> = {}): UserCardRow => ({
   card_id: "c1",
@@ -68,5 +68,37 @@ describe("userEdits", () => {
 
   it("ignores a field the user cleared, so the shared note still shows", () => {
     expect(userEdits(generated, { ...generated, example: "   " })).toEqual({});
+  });
+});
+
+describe("cardFields (#36)", () => {
+  const n = (kind: string, body: string) => ({ kind, body });
+
+  it("returns definition, register, emotional_colour and example, each with a value or marked missing", () => {
+    const fields = cardFields([n("definition", "Bâtiment."), n("example", "Je rentre à la maison.")]);
+    const required = Object.fromEntries(fields.filter((f) => f.required).map((f) => [f.key, f]));
+    expect(Object.keys(required).sort()).toEqual(["definition", "emotional_colour", "example", "register"]);
+    expect(required.definition).toMatchObject({ value: "Bâtiment.", missing: false });
+    expect(required.example).toMatchObject({ value: "Je rentre à la maison.", missing: false });
+    expect(required.register).toMatchObject({ value: null, missing: true });
+    expect(required.emotional_colour).toMatchObject({ value: null, missing: true });
+  });
+
+  it("uses my own note for a field instead of the generated one", () => {
+    const fields = cardFields([n("register", "Formal")], [n("register", "Casual")]);
+    expect(fields.find((f) => f.key === "register")).toMatchObject({ value: "Casual", missing: false, mine: true });
+  });
+
+  it("treats an empty or whitespace-only note as missing", () => {
+    const fields = cardFields([n("definition", "   "), n("register", "")], [n("example", " \n ")]);
+    for (const key of ["definition", "register", "example"]) {
+      expect(fields.find((f) => f.key === key)).toMatchObject({ value: null, missing: true });
+    }
+  });
+
+  it("shows optional fields only when they have a value", () => {
+    const keys = cardFields([n("lyric", "Un chien, un chat"), n("notable_use", " ")]).map((f) => f.key);
+    expect(keys).toContain("lyric");
+    expect(keys).not.toContain("notable_use");
   });
 });

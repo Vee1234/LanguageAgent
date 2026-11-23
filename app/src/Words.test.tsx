@@ -112,3 +112,17 @@ describe("saving while Load more is still waiting (Bug 16)", () => {
     await waitFor(() => expect(screen.getByText("word59")).toBeTruthy());
   });
 });
+
+describe("My words renders cards through <Card> (#36)", () => {
+  it("shows a word's missing required fields as Missing when it is opened", async () => {
+    fetchWordsPage.mockResolvedValueOnce({
+      rows: [{ ...word(1), notes: [{ kind: "definition", body: "Partir." }, { kind: "example", body: "Dégage !" }] }],
+      total: 1, cursor: null,
+    });
+    render(<Words version={0} />);
+    fireEvent.click(await screen.findByRole("button", { name: /word1/ }));
+    const register = screen.getByText("Register").closest("div")!;
+    expect(register.textContent).toContain("Missing");
+    expect(screen.getAllByText("Missing")).toHaveLength(2); // register, emotional colour
+  });
+});
