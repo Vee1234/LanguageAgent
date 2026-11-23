@@ -116,8 +116,8 @@ Docs-only and config-only changes don't need tests.
    - **Applies to:** `.claude/**`, `BugReview/**`, `LessonsLearned.md`, `docs/WorkflowLessons.md`,
      `docs/LearningRubric.md`, `docs/backlog.md`, `docs/HackathonLog.md`, `docs/factory.md`,
      `docs/review-ledger.jsonl`, `scripts/review_triage.py`, `scripts/ticket_analysis.py`,
-     `scripts/factory.py`, `tests/test_review_triage.py`, `tests/test_ticket_analysis.py`,
-     `tests/test_factory.py`, `tests/test_factory_hooks.py`, `scripts/qodo_review.py`,
+     `scripts/factory.py`, `scripts/discussion_post.py`, `docs/discussion/**`, `tests/test_review_triage.py`, `tests/test_ticket_analysis.py`,
+     `tests/test_factory.py`, `tests/test_factory_hooks.py`, `tests/test_discussion_post.py`, `scripts/qodo_review.py`,
      `scripts/learning_score.py`, `scripts/backlog_order.py`, `tests/test_qodo_review.py`,
      `tests/test_learning_score.py`, `tests/test_feature_commit_hook.py`,
      `tests/test_backlog_order.py`.
