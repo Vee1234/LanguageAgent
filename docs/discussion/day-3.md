@@ -16,9 +16,13 @@ Acceptance criteria checked, with observed results and evidence: Before building
 - [ ] [use] Deploy, then a new word on the phone appears in My words: deployed (`supabase functions list`: generate-word ACTIVE, version 5, updated 2026-11-23 21:29:57 UTC, verify_jwt on); phone check pending.
 - [x] [use] The migration applies without errors: `supabase db push --remote` said "Remote database is up to date" (no pending migrations), and `supabase migration list --remote` shows 20261117000000 (shared cache) applied on the hosted project. It had already been applied earlier, so the ticket's premise ("written but not deployed") was out of date for the schema.
 Relevant edge or failure case and result: [use] The same word from two accounts makes one shared `words` row and two `user_cards` rows (L7): a second account (created 2026-11-23 21:49) added and saved **chien** on the phone. Served from the shared cache with no Gemini call. A read-only query on production returned language French, lemma chien: words_rows 1, user_cards_rows 2, accounts 2. ✅
-Qodo findings I investigated, including any missed or irrelevant feedback: Not recorded
-What reached the coding agent and what changed in the fix: Not recorded
+Qodo findings I investigated, including any missed or irrelevant feedback: Qodo reviewed #68 at eccd844 (22:11 UTC) and found nothing, not even at low severity. The only code change was `docs/setup.md`. The clean review didn't mean the ticket was done: `ticket_analysis.py` returned NOT DONE because criterion 2 (a new word on the phone) failed. The real problem, Gemini answering 503 "high demand" in production, was out of the reviewer's sight. Only the phone check and the function logs showed it.
+What reached the coding agent and what changed in the fix: No review findings to act on. The evidence that reached the agent came from the phone check and the Edge Function logs. The Gemini 503 became ticket #67 (retry with backoff plus a Try again message, waiting on #35). The 404 after switching `GEMINI_MODEL` became the `docs/setup.md` change in #68: leave the model unset, and what 503 vs 404 mean. The user merged #68 with criterion 2 still open; #67's own [use] check re-tests new words on the phone.
 
 ## What I learned
-Did the factory deliver what the tickets asked for? Not recorded
-What I updated in the rules, skills, or review setup, and why (or why no update was needed): Not recorded
+Did the factory deliver what the tickets asked for? Partly, for #6. Migration live ✅, function deployed ✅, shared cache across two accounts ✅ (1 word, 2 user_cards). A new word on the phone ✗: Gemini overload in production. The loop caught it because the PR ticks only criteria with evidence and the analysis checks them; the code review alone would have passed it.
+What I updated in the rules, skills, or review setup, and why (or why no update was needed): - The ticket itself: before building, the user dropped #6's data-survival criteria, so "done" matched what they cared about.
+- A new ticket, #67, for the failure the phone check found.
+- `docs/setup.md`: GEMINI_MODEL and reading 503 vs 404.
+- Skills: a `discussion_post.py` script plus ticket-resolver and hackathon-log steps (PR #66), so this comment is filled in from evidence as the ticket moves.
+- No new review rule: Qodo had no findings to learn from on a docs-only release PR.
