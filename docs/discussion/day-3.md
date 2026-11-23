@@ -15,7 +15,7 @@ Acceptance criteria checked, with observed results and evidence: Before building
   The first phone attempt failed: Gemini returned 503 (overloaded) and the app showed a dead-end "Gemini request failed". A retry a few minutes later worked. The phone check caught a gap the tests didn't: no retry on a transient Gemini outage, filed as #67 (https://github.com/Vee1234/LanguageAgent/issues/67, under core, waits for #35).
 - [ ] [use] Deploy, then a new word on the phone appears in My words: deployed (`supabase functions list`: generate-word ACTIVE, version 5, updated 2026-11-23 21:29:57 UTC, verify_jwt on); phone check pending.
 - [x] [use] The migration applies without errors: `supabase db push --remote` said "Remote database is up to date" (no pending migrations), and `supabase migration list --remote` shows 20261117000000 (shared cache) applied on the hosted project. It had already been applied earlier, so the ticket's premise ("written but not deployed") was out of date for the schema.
-Relevant edge or failure case and result: Not recorded
+Relevant edge or failure case and result: [use] The same word from two accounts makes one shared `words` row and two `user_cards` rows (L7): a second account (created 2026-11-23 21:49) added and saved **chien** on the phone. Served from the shared cache with no Gemini call. A read-only query on production returned language French, lemma chien: words_rows 1, user_cards_rows 2, accounts 2. ✅
 Qodo findings I investigated, including any missed or irrelevant feedback: Not recorded
 What reached the coding agent and what changed in the fix: Not recorded
 
