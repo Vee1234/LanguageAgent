@@ -18,6 +18,27 @@ The rules are in `docs/factory.md`. Two hooks drive it:
 
 Run `python3 scripts/factory.py gate` yourself at any time to see where the ticket stands.
 
+## The day's discussion post (fill it as you go)
+
+The hackathon's comment for the day is drafted in `docs/discussion/day-N.md` while the ticket
+moves, not written afterwards. If the draft doesn't exist, start it with
+`python3 scripts/discussion_post.py init N` (N = the hackathon day). It copies the template from
+that day's discussion, so the fields are whatever the day asks for. At each step below, fill the
+fields that step produced evidence for, with links and the observed result, never a guess:
+
+```sh
+python3 scripts/discussion_post.py ticket N <ticket>          # once per ticket, at step 1
+python3 scripts/discussion_post.py set N "<field label>" "<value>" [--ticket <ticket>] [--append]
+python3 scripts/discussion_post.py show N
+```
+
+For the Day 3 template: the ticketing connection fields at steps 1–2 (the `gh issue list` /
+`gh issue view` you ran), "Ticket link" at step 1, "Branch and PR link" at step 4, "Qodo
+findings…" at step 5 (`--append` each round, including missed and irrelevant ones), the criteria
+and edge-case fields at step 6, "What reached the coding agent…" and "What I learned" at step 7.
+A field with nothing to show stays `Not recorded`. **Never post it yourself:** show the user
+`show N`, and only after they approve the exact text run `post N --confirm`.
+
 ## 1. Pick the ticket
 
 - Use the ticket the user names. Otherwise take the **▶** ticket from

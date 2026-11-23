@@ -15,6 +15,15 @@ Days are hackathon tasks, not calendar dates (same rule as `/qodo-bug-review`). 
 user gives. If none is given, use the highest-numbered day in the log and say which one in one
 line. A new challenge from the user starts a new day.
 
+## The day's discussion comment
+
+Each day's challenge is discussion N+2 at https://github.com/orgs/qodo-hackathon/discussions.
+When a new day starts, run `python3 scripts/discussion_post.py init N`. It takes the template
+from that day's post and writes `docs/discussion/day-N.md`, with every field `Not recorded`.
+The ticket-resolver fills it as the work goes; to prepare the post, run `show N`, fill what is
+still missing from this log's evidence, and post with `post N --confirm` only after the user
+approves the text.
+
 ## Each day has exactly these four sections
 
 ```markdown
