@@ -28,9 +28,17 @@ supabase db push --remote   # runs supabase/migrations/*.sql on the linked proje
 ## 4. Deploy the Gemini Edge Function
 ```sh
 supabase secrets set GEMINI_API_KEY=your-key       # same key as the root .env
-# optional: supabase secrets set GEMINI_MODEL=gemini-3.1-flash-lite
+# optional: supabase secrets set GEMINI_MODEL=<model> (default gemini-3.1-flash-lite; leave it unset unless you need another)
 supabase functions deploy generate-word --use-api  # --use-api: bundle without Docker
 ```
+
+Hosted changes ask for confirmation; run these in your own terminal, or add `--yes` to confirm
+up front (needed when an agent runs them).
+
+If adding a word fails, the function logs show Gemini's status (Dashboard → Edge Functions →
+`generate-word` → Logs, the `Gemini error` line):
+- **503:** Gemini is overloaded. It's temporary; try again later (retries are #67).
+- **404:** your key can't use that model. Check `GEMINI_MODEL`, or unset it to use the default.
 
 ## 5. Run the app
 ```sh
