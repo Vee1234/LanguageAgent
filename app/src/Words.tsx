@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CARD_FIELDS } from "./supabase";
+import Card from "./Card";
+import { cardFields } from "./cards";
 import { fetchWordsPage, mergePages, type Cursor, type Word } from "./wordsPage";
-
-const LABELS: Record<string, string> = {
-  ...Object.fromEntries(CARD_FIELDS.map(({ key, label }) => [key, label])),
-  user: "My note",
-};
-const ORDER = [...CARD_FIELDS.map((f) => f.key as string), "user"];
 
 /**
  * The user's words, newest first, loaded a page at a time; scrolling to the bottom (or
@@ -103,7 +98,6 @@ export default function Words({ version }: { version: number }) {
       <h1>My words <span className="muted count">{total}</span></h1>
       {words.map((w) => {
         const open = openId === w.id;
-        const notes = [...w.notes].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
         const definition = w.notes.find((n) => n.kind === "definition")?.body;
         return (
           <article key={w.id} className="word">
@@ -116,16 +110,7 @@ export default function Words({ version }: { version: number }) {
               <span className="tag">{w.language}</span>
               {!open && definition && <span className="word-preview">{definition}</span>}
             </button>
-            {open && (
-              <dl className="word-notes">
-                {notes.map((n, i) => (
-                  <div key={i}>
-                    <dt>{LABELS[n.kind] ?? n.kind}</dt>
-                    <dd>{n.body}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
+            {open && <Card fields={cardFields(w.notes)} />}
           </article>
         );
       })}
