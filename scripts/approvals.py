@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT_TITLE = "Language Agent"
 STATUS_FIELD = "Status"
+PROJECT_LIMIT = 1000  # gh lists only 30 projects by default
 IN_REVIEW = "In Review"            # the PR is open and the Qodo cycle is running
 NEEDS_APPROVAL = "Needs Approval"  # the cycle is resolved and only the owner can finish it
 STAGES = ["Todo", "In progress", IN_REVIEW, NEEDS_APPROVAL, "Done"]
@@ -83,7 +84,7 @@ def _project() -> tuple[str, str, str]:
     """(repo, owner, project number) of the board named PROJECT_TITLE."""
     repo = _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
     owner = repo.split("/")[0]
-    projects = json.loads(_gh("project", "list", "--owner", owner, "--format", "json"))["projects"]
+    projects = json.loads(_gh("project", "list", "--owner", owner, "--limit", str(PROJECT_LIMIT), "--format", "json"))["projects"]
     number = next((str(p["number"]) for p in projects if p["title"] == PROJECT_TITLE), None)
     if number is None:
         raise LookupError(f"no project board named '{PROJECT_TITLE}' for {owner}")

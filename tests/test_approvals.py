@@ -54,3 +54,20 @@ def test_status_of_reads_an_issues_current_column():
     items = [item(4, IN_REVIEW), item(5, "Todo", repo="x/other")]
     assert status_of(items, REPO, 4) == IN_REVIEW
     assert status_of(items, REPO, 5) is None
+
+
+def test_the_board_is_found_even_beyond_the_owners_first_30_projects(monkeypatch):
+    # Regression (Qodo, PR #71, low): `gh project list` returns 30 projects unless given --limit.
+    from scripts import approvals
+    projects = [{"number": n, "title": f"P{n}"} for n in range(1, 41)] + [{"number": 41, "title": approvals.PROJECT_TITLE}]
+
+    def fake_gh(*args):
+        if args[:2] == ("repo", "view"):
+            return REPO + "\n"
+        if args[:2] == ("project", "list"):
+            limit = int(args[args.index("--limit") + 1]) if "--limit" in args else 30
+            return __import__("json").dumps({"projects": projects[:limit]})
+        raise AssertionError(args)
+
+    monkeypatch.setattr(approvals, "_gh", fake_gh)
+    assert approvals._project() == (REPO, "Vee1234", "41")
