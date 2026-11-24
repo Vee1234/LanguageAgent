@@ -90,3 +90,11 @@ def test_a_ticket_branch_push_gets_both_the_qodo_wait_and_the_approvals(tmp_path
     repo = with_approvals(repo_on(tmp_path, "ticket-42-shared-guard"))
     text = json.loads(run(repo, AFTER_PUSH, push("git push")))["hookSpecificOutput"]["additionalContext"]
     assert "scripts/qodo_review.py" in text and "#4 Ship it" in text
+
+
+def test_the_push_hook_passes_the_whole_report_through_with_its_header(tmp_path):
+    # Qodo (PR #71, medium): `tail -20` cut the header and the first tickets off a long report.
+    report = "25 ticket(s) waiting in Needs Approval:\n" + "\n".join(f"- #{n} u{n}" for n in range(1, 26))
+    repo = with_approvals(repo_on(tmp_path, "some-feature"), report)
+    text = json.loads(run(repo, AFTER_PUSH, push("git push")))["hookSpecificOutput"]["additionalContext"]
+    assert "25 ticket(s) waiting" in text and "- #1 u1" in text and "- #25 u25" in text

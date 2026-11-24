@@ -106,3 +106,12 @@ def test_nothing_waiting_is_said_only_when_both_sources_were_read_and_are_empty(
     def broken():
         raise RuntimeError("gh failed")
     assert "No tickets are waiting" not in report(lambda: [], broken, REPO)
+
+
+def test_a_long_report_shows_the_first_50_and_says_how_many_more_in_code_not_by_cutting():
+    out = render([{"number": n, "prs": []} for n in range(1, 61)], REPO)
+    lines = out.splitlines()
+    assert lines[0] == "60 ticket(s) waiting in Needs Approval:"
+    assert "- #1 " in out and "- #50 " in out and "- #51 " not in out
+    assert lines[-1] == "...and 10 more: run `python3 scripts/approvals.py --all`"
+    assert len(render([{"number": n, "prs": []} for n in range(1, 61)], REPO, limit=None).splitlines()) == 61

@@ -12,7 +12,9 @@ cd "${CLAUDE_PROJECT_DIR:-$(pwd)}" || exit 0
 context=""
 
 if [ -f scripts/approvals.py ]; then
-  report=$(python3 scripts/approvals.py 2>&1 | tail -20)
+  # The whole report: approvals.py caps it itself, with a visible "...and N more" line, and
+  # prints errors as one line. Never `tail` it: its header comes first.
+  report=$(python3 scripts/approvals.py 2>&1)
   context="Approvals (after the push): tell the user this in one or two lines, before anything else.
 $report"
 fi

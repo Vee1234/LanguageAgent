@@ -4,7 +4,7 @@ The factory moves a ticket there when its PR is built and reviewed but only the 
 it (docs/factory.md, "Running on its own"). This lists them, and moves a ticket there.
 
 Usage:
-    python3 scripts/approvals.py            # list the tickets waiting for approval
+    python3 scripts/approvals.py [--all]    # list the tickets waiting for approval (first 50 unless --all)
     python3 scripts/approvals.py --hook     # the same, as PostToolUse context after a git push
     python3 scripts/approvals.py set N [--status "In Review"]   # move ticket N (default: Needs Approval)
 """
@@ -38,15 +38,21 @@ def needs_approval(items: list[dict], repo: str) -> list[dict]:
     return sorted(out, key=lambda t: t["number"])
 
 
-def render(tickets: list[dict], repo: str) -> str:
+REPORT_LIMIT = 50  # longer reports end with a visible "...and N more" line, never a silent cut
+
+
+def render(tickets: list[dict], repo: str, limit: int | None = REPORT_LIMIT) -> str:
     """Numbers, and links built from them, only. Titles are text other people could write, and this
     report goes into the agent's context, so it never carries them."""
     if not tickets:
         return "No tickets are waiting in Needs Approval."
     lines = [f"{len(tickets)} ticket(s) waiting in Needs Approval:"]
-    for t in tickets:
+    shown = tickets if limit is None else tickets[:limit]
+    for t in shown:
         prs = ", ".join(f"PR #{int(p)} https://github.com/{repo}/pull/{int(p)}" for p in t.get("prs", [])) or "no open PR"
         lines.append(f"- #{int(t['number'])} https://github.com/{repo}/issues/{int(t['number'])} ({prs})")
+    if len(shown) < len(tickets):
+        lines.append(f"...and {len(tickets) - len(shown)} more: run `python3 scripts/approvals.py --all`")
     return "\n".join(lines)
 
 
@@ -97,7 +103,7 @@ def _items(owner: str, number: str) -> list[dict]:
     return json.loads(_gh("project", "item-list", number, "--owner", owner, "--limit", "500", "--format", "json"))["items"]
 
 
-def report(read_board, read_labelled, repo: str) -> str:
+def report(read_board, read_labelled, repo: str, limit: int | None = REPORT_LIMIT) -> str:
     """What is waiting for the owner, from two sources: the board's Needs Approval column and open
     PRs labelled needs-approval. A source that can't be read is said plainly, and "nothing
     waiting" is said only when both were read and are empty."""
@@ -113,7 +119,7 @@ def report(read_board, read_labelled, repo: str) -> str:
     if not problems and not board and not labelled:
         return "No tickets are waiting in Needs Approval."
     tickets = [{"number": n, "prs": labelled.get(n, [])} for n in sorted(set(board) | set(labelled))]
-    lines = problems + ([render(tickets, repo)] if tickets else ["Nothing found in what could be read."])
+    lines = problems + ([render(tickets, repo, limit)] if tickets else ["Nothing found in what could be read."])
     out = "\n".join(lines)
     for n in sorted(set(labelled) - set(board)):
         out = out.replace(f"- #{n} ", f"- #{n} [on the label but not the board] ", 1)
@@ -135,13 +141,13 @@ def _labelled_prs() -> dict[int, list[int]]:
     return out
 
 
-def current_report() -> str:
+def current_report(limit: int | None = REPORT_LIMIT) -> str:
     try:
         repo, owner, number = _project()
     except Exception as e:
         repo = _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
-        return report(lambda: (_ for _ in ()).throw(e), _labelled_prs, repo)
-    return report(lambda: _board_numbers(repo, owner, number), _labelled_prs, repo)
+        return report(lambda: (_ for _ in ()).throw(e), _labelled_prs, repo, limit)
+    return report(lambda: _board_numbers(repo, owner, number), _labelled_prs, repo, limit)
 
 
 def set_status(ticket: int, status: str) -> bool:
@@ -165,6 +171,7 @@ def set_status(ticket: int, status: str) -> bool:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--hook", action="store_true")
+    p.add_argument("--all", action="store_true", help=f"list every ticket, not just the first {REPORT_LIMIT}")
     sub = p.add_subparsers(dest="cmd")
     s = sub.add_parser("set")
     s.add_argument("ticket", type=int)
@@ -175,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"#{args.ticket} moved to {args.status}")
         return 0
     try:
-        text = current_report()
+        text = current_report(None if args.all else REPORT_LIMIT)
     except Exception as e:  # even the repo name couldn't be read: say so, never a traceback
         text = f"Couldn't check Needs Approval: {e}"
     if args.hook:
