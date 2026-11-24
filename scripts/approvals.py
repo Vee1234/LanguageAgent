@@ -106,12 +106,12 @@ def waiting() -> list[dict]:
     return tickets
 
 
-def set_status(ticket: int, status: str) -> None:
-    """Move a ticket to a board column (adding it to the board if needed); no-op if it is there."""
+def set_status(ticket: int, status: str) -> bool:
+    """Move a ticket to a board column (adding it to the board if needed). False if it was already there."""
     repo, owner, number = _project()
     items = _items(owner, number)
     if status_of(items, repo, ticket) == status:
-        return
+        return False
     pid = json.loads(_gh("project", "view", number, "--owner", owner, "--format", "json"))["id"]
     field, option = option_id(json.loads(_gh("project", "field-list", number, "--owner", owner, "--format", "json")),
                               STATUS_FIELD, status)
@@ -121,6 +121,7 @@ def set_status(ticket: int, status: str) -> None:
                              "--url", f"https://github.com/{repo}/issues/{ticket}"))["id"]
     _gh("project", "item-edit", "--id", iid, "--project-id", pid, "--field-id", field,
         "--single-select-option-id", option)
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:

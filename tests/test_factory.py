@@ -181,11 +181,49 @@ def test_removing_the_label_withdraws_approval_and_a_bot_cannot_restore_it():
 from scripts.factory import choose_next  # noqa: E402
 
 
+def entry(n, blocked_by=(), in_review=(), closed_prs=()):
+    from scripts.backlog_order import Entry
+    return Entry(n, f"T{n}", "core", 3, 0, list(blocked_by), list(in_review), list(closed_prs))
+
+
 def test_the_next_ticket_is_backlog_orders_next_unless_one_is_queued_or_stuck():
-    assert choose_next(7, {3: ["enhancement"], 7: []}) == 7
-    assert choose_next(7, {3: ["ready-for-agent"], 7: []}) is None
-    assert choose_next(7, {3: ["agent-stuck"], 7: []}) is None
-    assert choose_next(None, {}) is None
+    order = [entry(7), entry(8)]
+    assert choose_next(order, {3: ["enhancement"], 7: []}) == (7, [])
+    assert choose_next(order, {3: ["ready-for-agent"], 7: []}) == (None, [])
+    assert choose_next(order, {3: ["agent-stuck"], 7: []}) == (None, [])
+    assert choose_next([], {}) == (None, [])
+
+
+def test_blocked_or_in_review_tickets_are_skipped():
+    assert choose_next([entry(5, blocked_by=[2]), entry(6, in_review=[60]), entry(7)], {}) == (7, [])
+
+
+def test_a_ticket_whose_pr_was_closed_unmerged_is_held_for_the_owner_and_the_next_one_is_picked():
+    # Qodo (PR #71, high): a rejected ticket must not restart without the owner's decision.
+    chosen, held = choose_next([entry(37, closed_prs=[70]), entry(38)], {})
+    assert chosen == 38 and held == [(37, [70])]
+
+
+def test_held_tickets_are_reported_even_while_the_queue_is_busy():
+    assert choose_next([entry(37, closed_prs=[70]), entry(38)], {9: ["ready-for-agent"]}) == (None, [(37, [70])])
+
+
+def test_next_moves_a_held_ticket_to_needs_approval_and_explains_once(monkeypatch):
+    import argparse
+    from scripts import approvals, backlog_order, factory
+    calls, moved = [], []
+    plan = backlog_order.Plan(order=[entry(37, closed_prs=[70]), entry(38)])
+    monkeypatch.setattr(factory, "repo_name", lambda: "o/r")
+    monkeypatch.setattr(backlog_order, "fetch_issues", lambda repo: [])
+    monkeypatch.setattr(backlog_order, "order_backlog", lambda issues, order: plan)
+    monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append((t, s)) or len(moved) == 1)
+    for _ in range(2):  # a second run must not comment again
+        factory.cmd_next(argparse.Namespace(dry_run=False))
+    assert moved[0] == (37, approvals.NEEDS_APPROVAL)
+    comments = [c for c in calls if c[:2] == ("issue", "comment")]
+    assert len(comments) == 1 and "#70" in comments[0][-1]
+    assert ("issue", "edit", "38", "--add-label", "ready-for-agent") in calls
 
 
 def run_merge(monkeypatch, approved, findings=()):

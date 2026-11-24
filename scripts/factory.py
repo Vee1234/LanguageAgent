@@ -400,11 +400,17 @@ READY_LABEL = "ready-for-agent"
 HOLD_LABELS = {READY_LABEL, "agent-stuck"}  # one ticket at a time, and a stuck one waits for the user
 
 
-def choose_next(plan_next: int | None, open_labels: dict[int, list[str]]) -> int | None:
-    """The ticket to label next: none while a ticket is queued or stuck, else backlog order's next."""
+def choose_next(order: list, open_labels: dict[int, list[str]]) -> tuple[int | None, list[tuple[int, list[int]]]]:
+    """(the ticket to label next, the tickets held for the owner).
+
+    Next is the first ticket in backlog order that nothing open blocks, isn't in an open PR and
+    has no PR closed without merging. A ticket with a rejected PR is held: rebuilding it is the
+    owner's decision. Nothing is labelled while a ticket is queued or stuck."""
+    held = [(e.number, list(e.closed_prs)) for e in order if e.closed_prs and not e.in_review]
     if any(HOLD_LABELS & set(ls) for ls in open_labels.values()):
-        return None
-    return plan_next
+        return None, held
+    nxt = next((e.number for e in order if not e.blocked_by and not e.in_review and not e.closed_prs), None)
+    return nxt, held
 
 
 def cmd_next(args) -> int:
@@ -412,7 +418,14 @@ def cmd_next(args) -> int:
     repo = repo_name()
     issues = backlog_order.fetch_issues(repo)
     plan = backlog_order.order_backlog(issues, backlog_order.parse_category_order(backlog_order.BACKLOG_DOC.read_text()))
-    chosen = choose_next(plan.next, {i.number: i.labels for i in issues if i.state == "OPEN"})
+    chosen, held = choose_next(plan.order, {i.number: i.labels for i in issues if i.state == "OPEN"})
+    for n, prs in held:
+        print(f"Held for the owner: #{n} (closed without merging: {', '.join(f'#{p}' for p in prs)})")
+        if not args.dry_run and approvals.set_status(n, approvals.NEEDS_APPROVAL):  # explain once, when it moves
+            _gh("issue", "comment", str(n), "--body",
+                f"Factory: held in **Needs Approval**. {', '.join(f'PR #{p}' for p in prs)} was closed without "
+                "merging, so the factory won't rebuild this on its own. To rebuild it, add `ready-for-agent`; "
+                "otherwise close or rewrite the ticket.")
     if chosen is None:
         print("Nothing to label: a ticket is already ready-for-agent or agent-stuck, or nothing is unblocked.")
         return 0
