@@ -42,7 +42,8 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
     user can do), or pass."""
     actions: list[dict] = []
     needs_user = False
-    if analysis is None or analysis.get("head") != head:
+    analysed = analysis is not None and analysis.get("head") == head
+    if not analysed:
         actions.append({"kind": "run-analysis",
                         "detail": f"run the ticket analysis on {head[:7]}: python3 scripts/ticket_analysis.py"})
     else:
@@ -75,8 +76,10 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
         status = "user"
     else:
         status = "pass"
+    # checked: this head has been analysed and Qodo has reviewed it. Only a checked head with work
+    # left is a round, so a fresh push is never counted (or stopped) before it has been looked at.
     return {"status": status, "actions": actions, "below_threshold": below, "for_user": for_user,
-            "needs_user": needs_user}
+            "needs_user": needs_user, "checked": analysed and review["fresh"]}
 
 
 def should_block(previous: dict | None, head: str, digest: str) -> bool:
@@ -296,7 +299,7 @@ def cmd_gate(args) -> int:
     state_file = state_dir() / f"gate-{info['number']}.json"
     previous = json.loads(state_file.read_text()) if state_file.exists() else None
     digest = hashlib.sha1(json.dumps(result["actions"], sort_keys=True).encode()).hexdigest()
-    if result["status"] == "work" and record_round(info) >= MAX_ROUNDS:
+    if result["status"] == "work" and result["checked"] and record_round(info) >= MAX_ROUNDS:
         print(json.dumps({"systemMessage": f"Factory gate: PR #{info['number']} reached the retry limit "
                                            f"({MAX_ROUNDS} rounds). Run `python3 scripts/factory.py merge` "
                                            "to label it agent-stuck, then stop and tell the user what is stuck."}))
@@ -384,7 +387,8 @@ def cmd_merge(args) -> int:
     entries = ([json.loads(l) for l in Path(args.ledger).read_text().splitlines() if l.strip()]
                if getattr(args, "ledger", None) else read_ledger())
     result = gate(head, analysis, review, latest_verdicts(entries, info["number"]))
-    rounds = record_round(info) if result["status"] == "work" else count_rounds(pr_comments(info["number"]))
+    rounds = (record_round(info) if result["status"] == "work" and result["checked"]
+              else count_rounds(pr_comments(info["number"])))
     approved = bool(info["ticket"]) and ticket_approved(info["ticket"])
     changed = list(info["changed"])
     if len(changed) >= GH_FILES_CAP:  # the list may be cut short: assume factory code is in the rest

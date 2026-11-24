@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from scripts.factory import gate, should_block
@@ -471,3 +472,47 @@ def test_only_round_markers_the_factory_or_the_owner_posted_count(monkeypatch):
                 {"body": round_marker("0" * 40), "user": None}]  # a deleted account
     monkeypatch.setattr(factory, "_gh", lambda *a: json.dumps(comments))
     assert count_rounds(factory.pr_comments(1)) == 2
+
+
+# --- a round is a head that was checked (analysed and reviewed) and still has work -
+
+def test_a_head_is_checked_only_once_it_is_analysed_and_reviewed():
+    stale = analysis(head="b" * 40, failing=["x"])
+    assert gate(HEAD, stale, review(), {})["checked"] is False            # just pushed: not analysed
+    assert gate(HEAD, analysis(failing=["x"]), review(fresh=False), {})["checked"] is False  # Qodo pending
+    assert gate(HEAD, analysis(failing=["x"]), review(), {})["checked"] is True
+
+
+def run_hook(monkeypatch, tmp_path, prior_rounds, analysed, reviewed):
+    import argparse
+    import json
+    from scripts import approvals, factory
+    posted = []
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": []}
+    prior = [round_marker(c * 40) for c in "bcdef"[:prior_rounds]]
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review(fresh=reviewed))
+    monkeypatch.setattr(factory, "load_analysis",
+                        lambda h: analysis(failing=["x"]) if analysed else analysis(head="b" * 40))
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])
+    monkeypatch.setattr(factory, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(factory, "pr_comments", lambda n: list(prior) + posted)
+    monkeypatch.setattr(factory, "_gh", lambda *a: posted.append(a[a.index("--body") + 1]) if "comment" in a else "")
+    monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
+    import io, contextlib
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        factory.cmd_gate(argparse.Namespace(pr="71", threshold=2, hook=True))
+    return json.loads(out.getvalue()), posted
+
+
+def test_the_third_push_is_analysed_and_reviewed_before_the_retry_limit_can_stop_it(monkeypatch, tmp_path):
+    for analysed, reviewed in [(False, False), (True, False)]:
+        msg, posted = run_hook(monkeypatch, tmp_path, prior_rounds=2, analysed=analysed, reviewed=reviewed)
+        assert posted == [] and "retry limit" not in json.dumps(msg)
+        assert msg.get("decision") == "block"  # the agent still has to analyse or fix it
+
+
+def test_the_third_checked_head_with_work_left_reaches_the_retry_limit(monkeypatch, tmp_path):
+    msg, posted = run_hook(monkeypatch, tmp_path, prior_rounds=2, analysed=True, reviewed=True)
+    assert len(posted) == 1 and "retry limit" in msg["systemMessage"]

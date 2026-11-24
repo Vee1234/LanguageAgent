@@ -108,7 +108,10 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   **Needs Approval** with a comment saying why, and the next ticket is picked instead. To rebuild
   it, add `ready-for-agent` yourself.
 - **One agent at a time.** `factory-run` uses a concurrency group, so two runs never take the same ticket.
-- **Retry limit.** Each head the gate finds work on is a round, recorded as a
+- **Retry limit.** A round is a head that has been **checked** (the ticket analysis ran on it and
+  Qodo reviewed it) and still has work left. A fresh push is never counted before it is checked,
+  so the third attempt is always evaluated. Pushes made before Qodo reviews don't use up rounds;
+  the run's `--max-turns` and job timeout bound those. Each round is recorded as a
   `<!-- factory-round head=SHA -->` PR comment (counted only from the factory's job token or you,
   so nobody else's comment can use up the rounds). After **3** rounds the gate stops blocking and
   `factory.py merge` labels the PR and ticket `agent-stuck`. A run that ends before the gate
