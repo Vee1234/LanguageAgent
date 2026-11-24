@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from scripts import qodo_review, review_triage  # noqa: E402
+from scripts import approvals, qodo_review, review_triage  # noqa: E402
 from scripts.ticket_analysis import PASSING, state_dir  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -355,6 +355,8 @@ def cmd_merge(args) -> int:
             _gh("issue", "edit", str(info["ticket"]), "--remove-label", "ready-for-agent", "--add-label", labels[d["decision"]])
         _gh("pr", "comment", n, "--body", f"Factory: **{labels[d['decision']]}** at {head[:7]}\n\n"
             + "\n".join(f"- {r}" for r in d["reasons"]))
+        if d["decision"] == "user" and info["ticket"]:
+            approvals.set_needs_approval(info["ticket"])  # the board's Needs Approval column
     return 1
 
 

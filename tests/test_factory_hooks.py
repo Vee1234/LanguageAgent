@@ -72,3 +72,21 @@ def test_a_clean_stop_on_a_ticket_branch_returns_the_gate_decision_even_when_alr
 def test_a_clean_stop_on_another_branch_runs_no_gate(tmp_path):
     repo = committed_repo_with_gate(tmp_path, "some-feature", '{"decision": "block", "reason": "no"}')
     assert run(repo, STOP, {"stop_hook_active": False}) == ""
+
+
+def with_approvals(repo, report="1 ticket(s) waiting in Needs Approval:\n- #4 Ship it (PR #71) u4"):
+    (repo / "scripts").mkdir(exist_ok=True)
+    (repo / "scripts/approvals.py").write_text(f"print({report!r})\n")
+    return repo
+
+
+def test_any_push_reports_the_tickets_waiting_in_needs_approval(tmp_path):
+    repo = with_approvals(repo_on(tmp_path, "some-feature"))
+    text = json.loads(run(repo, AFTER_PUSH, push("git push")))["hookSpecificOutput"]["additionalContext"]
+    assert "#4 Ship it (PR #71)" in text and "tell the user" in text
+
+
+def test_a_ticket_branch_push_gets_both_the_qodo_wait_and_the_approvals(tmp_path):
+    repo = with_approvals(repo_on(tmp_path, "ticket-42-shared-guard"))
+    text = json.loads(run(repo, AFTER_PUSH, push("git push")))["hookSpecificOutput"]["additionalContext"]
+    assert "scripts/qodo_review.py" in text and "#4 Ship it" in text

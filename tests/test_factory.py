@@ -184,3 +184,32 @@ def test_the_next_ticket_is_backlog_orders_next_unless_one_is_queued_or_stuck():
     assert choose_next(7, {3: ["ready-for-agent"], 7: []}) is None
     assert choose_next(7, {3: ["agent-stuck"], 7: []}) is None
     assert choose_next(None, {}) is None
+
+
+def run_merge(monkeypatch, approved, findings=()):
+    import argparse
+    from scripts import approvals, factory
+    calls, moved = [], []
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": []}
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review(findings=findings))
+    monkeypatch.setattr(factory, "load_analysis", lambda h: analysis())
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])
+    monkeypatch.setattr(factory, "pr_comments", lambda n: [])
+    monkeypatch.setattr(factory, "ticket_approved", lambda t: approved)
+    monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(approvals, "set_needs_approval", lambda t: moved.append(t))
+    code = factory.cmd_merge(argparse.Namespace(pr="71", final=True))
+    return code, calls, moved
+
+
+def test_a_ticket_needing_approval_moves_to_the_needs_approval_column(monkeypatch):
+    code, calls, moved = run_merge(monkeypatch, approved=False)
+    assert code == 1 and moved == [4]
+    assert not any(c[:2] == ("pr", "merge") for c in calls)
+
+
+def test_an_approved_ticket_merges_and_stays_out_of_needs_approval(monkeypatch):
+    code, calls, moved = run_merge(monkeypatch, approved=True)
+    assert code == 0 and moved == []
+    assert ("pr", "merge", "71", "--squash", "--delete-branch", "--match-head-commit", HEAD) in calls

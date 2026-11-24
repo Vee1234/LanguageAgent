@@ -123,10 +123,13 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
    An unreadable severity or kind counts as serious. A serious finding clears only by being fixed,
    never by the agent's own `not-a-bug` or `out-of-scope` verdict.
 
-Otherwise the PR is labelled `needs-approval` with the reasons, and you merge it or not.
+Otherwise the PR is labelled `needs-approval` with the reasons, the ticket moves to the
+**Needs Approval** column of the "Language Agent" project board, and you merge it or not.
+After every push, the `after-push.sh` hook lists what is in that column (the `approvals` skill;
+`python3 scripts/approvals.py` on demand).
 A `[use]` check about the phone needs `user:` evidence, so those tickets always come to you.
 
 Setup: repo secrets `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `FACTORY_TOKEN` (a
-fine-grained token with contents, issues and pull requests write: a label or merge made with
-`GITHUB_TOKEN` would not start the next workflow), and the labels `ready-for-agent`,
+classic token with the `repo`, `workflow` and `project` scopes: a label or merge made with
+`GITHUB_TOKEN` would not start the next workflow, and the board is a user project), and the labels `ready-for-agent`,
 `auto-merge-ok`, `needs-approval` and `agent-stuck`.
