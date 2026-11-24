@@ -109,7 +109,8 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   it, add `ready-for-agent` yourself.
 - **One agent at a time.** `factory-run` uses a concurrency group, so two runs never take the same ticket.
 - **Retry limit.** Each head the gate finds work on is a round, recorded as a
-  `<!-- factory-round head=SHA -->` PR comment. After **3** rounds the gate stops blocking and
+  `<!-- factory-round head=SHA -->` PR comment (counted only from the factory's job token or you,
+  so nobody else's comment can use up the rounds). After **3** rounds the gate stops blocking and
   `factory.py merge` labels the PR and ticket `agent-stuck`. A run that ends before the gate
   finishes (Qodo never reviewed, no PR) is also `agent-stuck`.
 - **A trusted copy decides the merge.** `factory-run` has four jobs, each on a fresh machine:

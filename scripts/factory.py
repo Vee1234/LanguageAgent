@@ -226,9 +226,16 @@ def repo_name() -> str:
 pages = qodo_review.pages  # gh --paginate output, every page
 
 
+FACTORY_BOT = "github-actions[bot]"  # the job token the factory posts its round markers with
+
+
 def pr_comments(number: int) -> list[str]:
-    return [c["body"] for c in pages(_gh("api", f"repos/{repo_name()}/issues/{number}/comments?per_page=100",
-                                         "--paginate"))]
+    """Bodies of the PR's comments that the factory (its job token) or the owner wrote. Round
+    markers count only from these: anyone else's comment can't push a ticket to agent-stuck."""
+    repo = repo_name()
+    trusted = {FACTORY_BOT, repo.split("/")[0]}
+    return [c["body"] for c in pages(_gh("api", f"repos/{repo}/issues/{number}/comments?per_page=100", "--paginate"))
+            if (c.get("user") or {}).get("login") in trusted]
 
 
 def record_round(info: dict) -> int:

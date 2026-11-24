@@ -448,11 +448,26 @@ def test_pages_rejects_output_that_is_not_json_arrays():
 def test_comments_and_approvals_read_past_the_first_page(monkeypatch):
     from scripts import factory
     monkeypatch.setattr(factory, "repo_name", lambda: "o/r")
-    page1 = [{"body": f"c{i}"} for i in range(30)]
-    page2 = [{"body": "last"}]
+    page1 = [{"body": f"c{i}", "user": {"login": "o"}} for i in range(30)]
+    page2 = [{"body": "last", "user": {"login": "o"}}]
     monkeypatch.setattr(factory, "_gh", lambda *a: f"{__import__('json').dumps(page1)}\n{__import__('json').dumps(page2)}\n")
     assert factory.pr_comments(1)[-1] == "last" and len(factory.pr_comments(1)) == 31
 
     label = {"event": "labeled", "label": {"name": "auto-merge-ok"}, "actor": {"login": "o"}}
     monkeypatch.setattr(factory, "_gh", lambda *a: f"[{{\"event\": \"commented\"}}]\n[{__import__('json').dumps(label)}]\n")
     assert factory.ticket_approved(5) is True
+
+
+def test_only_round_markers_the_factory_or_the_owner_posted_count(monkeypatch):
+    # Anyone else's comment, markers and all, must not move the ticket towards agent-stuck.
+    import json
+    from scripts import factory
+    monkeypatch.setattr(factory, "repo_name", lambda: "o/r")
+    fake = "\n".join(round_marker(c * 40) for c in "bcd")
+    comments = [{"body": fake, "user": {"login": "stranger"}},
+                {"body": fake, "user": {"login": "qodo-code-review[bot]"}},
+                {"body": round_marker("e" * 40), "user": {"login": "github-actions[bot]"}},
+                {"body": round_marker("f" * 40), "user": {"login": "o"}},
+                {"body": round_marker("0" * 40), "user": None}]  # a deleted account
+    monkeypatch.setattr(factory, "_gh", lambda *a: json.dumps(comments))
+    assert count_rounds(factory.pr_comments(1)) == 2
