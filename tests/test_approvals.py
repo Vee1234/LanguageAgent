@@ -115,3 +115,35 @@ def test_a_long_report_shows_the_first_50_and_says_how_many_more_in_code_not_by_
     assert "- #1 " in out and "- #50 " in out and "- #51 " not in out
     assert lines[-1] == "...and 10 more: run `python3 scripts/approvals.py --all`"
     assert len(render([{"number": n, "prs": []} for n in range(1, 61)], REPO, limit=None).splitlines()) == 61
+
+
+# --- every board item is read, or the read fails visibly (Qodo, PR #71) ---------
+
+from scripts.approvals import all_items  # noqa: E402
+
+
+def board(total, cap=None):
+    """A fake `gh project item-list`: returns min(limit, total, cap) items and the true total."""
+    calls = []
+
+    def fetch(limit):
+        calls.append(limit)
+        n = min(limit, total, cap if cap is not None else total)
+        return {"items": [item(i, "Todo") for i in range(1, n + 1)], "totalCount": total}
+    return fetch, calls
+
+
+def test_the_whole_board_is_read_even_beyond_500_items():
+    fetch, calls = board(612)
+    assert len(all_items(fetch)) == 612 and calls[-1] >= 612
+
+
+def test_a_read_that_comes_back_short_is_an_error_not_a_smaller_board():
+    fetch, _ = board(612, cap=500)
+    with pytest.raises(LookupError, match="read 500 of 612"):
+        all_items(fetch)
+
+
+def test_an_empty_board_is_read_as_empty():
+    fetch, _ = board(0)
+    assert all_items(fetch) == []

@@ -99,8 +99,22 @@ def _project() -> tuple[str, str, str]:
     return repo, owner, number
 
 
+def all_items(fetch) -> list[dict]:
+    """Every item on the board. fetch(limit) returns gh's {"items", "totalCount"}: read the total
+    first, then that many, and fail if fewer came back. A short read must never look like a
+    smaller board (report() shows the error)."""
+    total = fetch(1)["totalCount"]
+    if total == 0:
+        return []
+    items = fetch(total)["items"]
+    if len(items) < total:
+        raise LookupError(f"read {len(items)} of {total} board items")
+    return items
+
+
 def _items(owner: str, number: str) -> list[dict]:
-    return json.loads(_gh("project", "item-list", number, "--owner", owner, "--limit", "500", "--format", "json"))["items"]
+    return all_items(lambda limit: json.loads(_gh("project", "item-list", number, "--owner", owner,
+                                                  "--limit", str(limit), "--format", "json")))
 
 
 def report(read_board, read_labelled, repo: str, limit: int | None = REPORT_LIMIT) -> str:
