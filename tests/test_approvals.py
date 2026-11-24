@@ -78,3 +78,31 @@ def test_the_board_is_found_even_beyond_the_owners_first_30_projects(monkeypatch
 
     monkeypatch.setattr(approvals, "_gh", fake_gh)
     assert approvals._project() == (REPO, "Vee1234", "41")
+
+
+# --- two sources: the board and the needs-approval label (Qodo, PR #71) ---------
+
+from scripts.approvals import report  # noqa: E402
+
+
+def test_the_report_lists_the_board_and_the_label_and_flags_what_only_the_label_has():
+    out = report(lambda: [4, 9], lambda: {9: [71], 12: [80]}, REPO)
+    assert "#4" in out and "#9" in out and "#12" in out
+    line12 = next(l for l in out.splitlines() if "#12" in l)
+    assert "on the label but not the board" in line12
+    assert "not the board" not in next(l for l in out.splitlines() if "#9 " in l)
+
+
+def test_a_board_that_cant_be_read_is_said_plainly_and_the_label_list_still_shows():
+    def broken():
+        raise TimeoutError("timed out after 30 seconds")
+    out = report(broken, lambda: {12: [80]}, REPO)
+    assert out.startswith("Couldn't read the board") and "timed out" in out and "#12" in out
+    assert "No tickets are waiting" not in out
+
+
+def test_nothing_waiting_is_said_only_when_both_sources_were_read_and_are_empty():
+    assert report(lambda: [], lambda: {}, REPO) == "No tickets are waiting in Needs Approval."
+    def broken():
+        raise RuntimeError("gh failed")
+    assert "No tickets are waiting" not in report(lambda: [], broken, REPO)

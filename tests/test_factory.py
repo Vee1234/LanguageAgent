@@ -373,3 +373,28 @@ def test_a_ticket_is_trusted_only_if_the_owner_wrote_it_and_only_the_owner_edite
 
 def test_next_skips_tickets_that_are_not_the_owners_own():
     assert choose_next([entry(7), entry(8)], {}, untrusted={7}) == (8, [])
+
+
+def test_a_failed_board_move_is_said_in_the_handover_and_fails_the_step(monkeypatch):
+    # Qodo (PR #71, medium): the labels must not look like a finished handover when the board move failed.
+    import argparse
+    from scripts import approvals, factory
+    calls = []
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": []}
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review())
+    monkeypatch.setattr(factory, "load_analysis", lambda h: analysis())
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])
+    monkeypatch.setattr(factory, "pr_comments", lambda n: [])
+    monkeypatch.setattr(factory, "ticket_approved", lambda t: False)
+    monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+
+    def board_down(t, s):
+        calls.append(("board", t, s))
+        raise TimeoutError("board timed out")
+    monkeypatch.setattr(approvals, "set_status", board_down)
+    code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None))
+    assert code == 2
+    assert calls.index(("board", 4, approvals.NEEDS_APPROVAL)) < next(i for i, c in enumerate(calls) if c[:2] == ("pr", "edit"))
+    comment = next(c for c in calls if c[:2] == ("pr", "comment"))[-1]
+    assert "couldn't move" in comment and "board timed out" in comment

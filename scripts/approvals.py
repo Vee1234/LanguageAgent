@@ -97,15 +97,51 @@ def _items(owner: str, number: str) -> list[dict]:
     return json.loads(_gh("project", "item-list", number, "--owner", owner, "--limit", "500", "--format", "json"))["items"]
 
 
-def waiting() -> tuple[str, list[dict]]:
-    repo, owner, number = _project()
-    tickets = needs_approval(_items(owner, number), repo)
-    prs = json.loads(_gh("pr", "list", "--state", "open", "--json", "number,body,headRefName"))
-    for t in tickets:
-        t["prs"] = [p["number"] for p in prs
-                    if re.search(rf"^Closes #{t['number']}\s*$", p["body"] or "", re.M)
-                    or p["headRefName"].startswith(f"ticket-{t['number']}-")]
-    return repo, tickets
+def report(read_board, read_labelled, repo: str) -> str:
+    """What is waiting for the owner, from two sources: the board's Needs Approval column and open
+    PRs labelled needs-approval. A source that can't be read is said plainly, and "nothing
+    waiting" is said only when both were read and are empty."""
+    problems, board, labelled = [], [], {}
+    try:
+        board = list(read_board())
+    except Exception as e:
+        problems.append(f"Couldn't read the board: {e}")
+    try:
+        labelled = dict(read_labelled())
+    except Exception as e:
+        problems.append(f"Couldn't read the needs-approval PRs: {e}")
+    if not problems and not board and not labelled:
+        return "No tickets are waiting in Needs Approval."
+    tickets = [{"number": n, "prs": labelled.get(n, [])} for n in sorted(set(board) | set(labelled))]
+    lines = problems + ([render(tickets, repo)] if tickets else ["Nothing found in what could be read."])
+    out = "\n".join(lines)
+    for n in sorted(set(labelled) - set(board)):
+        out = out.replace(f"- #{n} ", f"- #{n} [on the label but not the board] ", 1)
+    return out
+
+
+def _board_numbers(repo: str, owner: str, number: str) -> list[int]:
+    return [t["number"] for t in needs_approval(_items(owner, number), repo)]
+
+
+def _labelled_prs() -> dict[int, list[int]]:
+    prs = json.loads(_gh("pr", "list", "--state", "open", "--label", "needs-approval", "--limit", "500",
+                         "--json", "number,body,headRefName"))
+    out: dict[int, list[int]] = {}
+    for p in prs:
+        m = re.search(r"^Closes #(\d+)\s*$", p["body"] or "", re.M) or re.match(r"^ticket-(\d+)-", p["headRefName"])
+        if m:
+            out.setdefault(int(m.group(1)), []).append(p["number"])
+    return out
+
+
+def current_report() -> str:
+    try:
+        repo, owner, number = _project()
+    except Exception as e:
+        repo = _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
+        return report(lambda: (_ for _ in ()).throw(e), _labelled_prs, repo)
+    return report(lambda: _board_numbers(repo, owner, number), _labelled_prs, repo)
 
 
 def set_status(ticket: int, status: str) -> bool:
@@ -139,16 +175,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"#{args.ticket} moved to {args.status}")
         return 0
     try:
-        report = render(*reversed(waiting()))
-    except (subprocess.SubprocessError, LookupError, json.JSONDecodeError, KeyError) as e:
-        if not args.hook:
-            raise
-        report = f"Couldn't read the Needs Approval column: {e}"
+        text = current_report()
+    except Exception as e:  # even the repo name couldn't be read: say so, never a traceback
+        text = f"Couldn't check Needs Approval: {e}"
     if args.hook:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-              "Approvals check after the push: tell the user this in one or two lines.\n" + report}}))
+              "Approvals check after the push: tell the user this in one or two lines.\n" + text}}))
     else:
-        print(report)
+        print(text)
     return 0
 
 

@@ -385,14 +385,24 @@ def cmd_merge(args) -> int:
     if d["decision"] == "merge":
         _gh("pr", "merge", n, "--squash", "--delete-branch", "--match-head-commit", head)
         return 0
+    board_error = None
+    if d["decision"] == "user" and info["ticket"]:
+        try:  # the board first, so a failure is in the handover comment, never hidden behind the labels
+            approvals.set_status(info["ticket"], approvals.NEEDS_APPROVAL)
+        except Exception as e:
+            board_error = str(e)
     if d["decision"] in labels:
         _gh("pr", "edit", n, "--add-label", labels[d["decision"]])
         if info["ticket"]:
             _gh("issue", "edit", str(info["ticket"]), "--remove-label", "ready-for-agent", "--add-label", labels[d["decision"]])
-        _gh("pr", "comment", n, "--body", f"Factory: **{labels[d['decision']]}** at {head[:7]}\n\n"
-            + "\n".join(f"- {r}" for r in d["reasons"]))
-        if d["decision"] == "user" and info["ticket"]:
-            approvals.set_status(info["ticket"], approvals.NEEDS_APPROVAL)
+        body = f"Factory: **{labels[d['decision']]}** at {head[:7]}\n\n" + "\n".join(f"- {r}" for r in d["reasons"])
+        if board_error:
+            body += (f"\n\n**Board: couldn't move #{info['ticket']} to {approvals.NEEDS_APPROVAL}:** {board_error}. "
+                     f"Retry: `python3 scripts/approvals.py set {info['ticket']}`")
+        _gh("pr", "comment", n, "--body", body)
+    if board_error:
+        print(f"Board move failed: {board_error}", file=sys.stderr)
+        return 2
     return 1
 
 
@@ -445,6 +455,7 @@ def cmd_next(args) -> int:
     plan = backlog_order.order_backlog(issues, backlog_order.parse_category_order(backlog_order.BACKLOG_DOC.read_text()))
     labels = {i.number: i.labels for i in issues if i.state == "OPEN"}
     untrusted: set[int] = set()
+    failed = False
     chosen, held = choose_next(plan.order, labels)
     while chosen is not None and not trusted_ticket(chosen):
         print(f"Skipped #{chosen}: not written and edited only by the owner")
@@ -452,18 +463,24 @@ def cmd_next(args) -> int:
         chosen, held = choose_next(plan.order, labels, untrusted)
     for n, prs in held:
         print(f"Held for the owner: #{n} (closed without merging: {', '.join(f'#{p}' for p in prs)})")
-        if not args.dry_run and approvals.set_status(n, approvals.NEEDS_APPROVAL):  # explain once, when it moves
+        try:
+            moved = not args.dry_run and approvals.set_status(n, approvals.NEEDS_APPROVAL)
+        except Exception as e:
+            print(f"Board move failed for #{n}: {e}", file=sys.stderr)
+            failed = True
+            continue
+        if moved:  # explain once, when it moves
             _gh("issue", "comment", str(n), "--body",
                 f"Factory: held in **Needs Approval**. {', '.join(f'PR #{p}' for p in prs)} was closed without "
                 "merging, so the factory won't rebuild this on its own. To rebuild it, add `ready-for-agent`; "
                 "otherwise close or rewrite the ticket.")
     if chosen is None:
         print("Nothing to label: a ticket is already ready-for-agent or agent-stuck, or nothing is unblocked.")
-        return 0
+        return 2 if failed else 0
     print(f"Next: #{chosen}")
     if not args.dry_run:
         _gh("issue", "edit", str(chosen), "--add-label", READY_LABEL)
-    return 0
+    return 2 if failed else 0
 
 
 def cmd_check_ticket(args) -> int:
