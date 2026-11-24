@@ -149,4 +149,9 @@ A `[use]` check about the phone needs `user:` evidence, so those tickets always 
 Setup: repo secrets `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `FACTORY_TOKEN` (a
 classic token with the `repo`, `workflow` and `project` scopes: a label or merge made with
 `GITHUB_TOKEN` would not start the next workflow, and the board is a user project), and the labels `ready-for-agent`,
-`auto-merge-ok`, `needs-approval` and `agent-stuck`.
+`auto-merge-ok`, `needs-approval` and `agent-stuck`. Master is protected by a ruleset (a PR with one
+approving review, no force-push or deletion) with **Repository admin** on its bypass list: the
+agent's job token is not an admin, so it can neither push to master nor merge, and the trusted
+merge job merges with `gh pr merge --admin` once the owner's `auto-merge-ok` is checked. The
+agent's tool list also denies `gh pr merge`, `gh api`, force-pushes and pushes to master, as a
+second layer.

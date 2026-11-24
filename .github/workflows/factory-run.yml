@@ -43,7 +43,6 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
     outputs:
       pr: ${{ steps.pr.outputs.pr }}
     steps:
@@ -77,7 +76,7 @@ jobs:
             remove the auto-merge-ok label.
           claude_args: >-
             --max-turns 300
-            --disallowedTools "Bash(gh pr merge:*)"
+            --disallowedTools "Bash(gh pr merge:*) Bash(gh api:*) Bash(git push origin master:*) Bash(git push origin HEAD:master:*) Bash(git push --force:*)"
 
       - name: Find the PR
         id: pr

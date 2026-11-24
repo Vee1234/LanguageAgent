@@ -254,7 +254,7 @@ def test_a_ticket_needing_approval_moves_to_the_needs_approval_column(monkeypatc
 def test_an_approved_ticket_merges_and_stays_out_of_needs_approval(monkeypatch):
     code, calls, moved = run_merge(monkeypatch, approved=True)
     assert code == 0 and moved == []
-    assert ("pr", "merge", "71", "--squash", "--delete-branch", "--match-head-commit", HEAD) in calls
+    assert ("pr", "merge", "71", "--squash", "--admin", "--delete-branch", "--match-head-commit", HEAD) in calls
 
 
 

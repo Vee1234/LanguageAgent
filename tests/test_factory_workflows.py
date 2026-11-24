@@ -31,3 +31,12 @@ def test_the_start_job_refuses_a_ticket_that_is_not_the_owners_own_before_anythi
     start = jobs(RUN)["start"]
     assert "python3 scripts/factory.py check-ticket" in start
     assert start.index("check-ticket") < start.index("approvals.py set")
+
+
+def test_the_agent_job_has_no_oidc_token_and_is_denied_merging_api_calls_and_pushes_to_master():
+    build = jobs(RUN)["build"]
+    assert "id-token" not in build
+    denied = re.search(r'--disallowedTools "([^"]*)"', build).group(1)
+    for rule in ["Bash(gh pr merge:*)", "Bash(gh api:*)", "Bash(git push origin master:*)",
+                 "Bash(git push origin HEAD:master:*)", "Bash(git push --force:*)"]:
+        assert rule in denied, rule

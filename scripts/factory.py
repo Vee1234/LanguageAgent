@@ -390,7 +390,9 @@ def cmd_merge(args) -> int:
     print(render(info, result) + f"\n\nAuto-merge: {d['decision'].upper()}" + "".join(f"\n- {r}" for r in d["reasons"]))
     labels = {"user": "needs-approval", "stuck": "agent-stuck"}
     if d["decision"] == "merge":
-        _gh("pr", "merge", n, "--squash", "--delete-branch", "--match-head-commit", head)
+        # --admin: master's ruleset needs an approving review, which the owner can't give their own PR.
+        # This trusted job has just checked the owner's auto-merge-ok approval itself.
+        _gh("pr", "merge", n, "--squash", "--admin", "--delete-branch", "--match-head-commit", head)
         return 0
     board_error = None
     if d["decision"] == "user" and info["ticket"]:
