@@ -67,7 +67,7 @@ def parse_summary(body: str) -> dict:
     if not m:
         return {"count": None, "items": []}
     # Every group counts: a review with no bugs can still have a rule violation.
-    count = sum(int(n) for n in _GROUP_COUNT.findall(body)) or int(m.group(1))
+    groups = sum(int(n) for n in _GROUP_COUNT.findall(body)) or int(m.group(1))
 
     # Findings Qodo has marked resolved are listed after the open ones; only open ones are work.
     resolved = _RESOLVED_HEADING.search(body)
@@ -88,7 +88,9 @@ def parse_summary(body: str) -> dict:
             "kind": KINDS[kind.group(1)] if kind else "unknown",
             "prompt": _unquote(prompt.group(1)) if prompt else "",
         })
-    return {"count": count, "items": items if count else []}
+    # A listed open finding is never dropped, even in a group the parser doesn't know: it comes
+    # through with kind "unknown", which goes to the owner (factory.serious).
+    return {"count": max(groups, len(items)), "items": items}
 
 
 def blocking(items: list[dict], min_severity: str = "medium") -> list[dict]:

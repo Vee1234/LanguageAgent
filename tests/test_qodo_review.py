@@ -222,7 +222,8 @@ def test_each_finding_takes_its_kind_from_its_own_tag():
 
 
 def test_the_count_covers_every_group_not_only_bugs():
-    assert parse_summary(MIXED)["count"] == 3
+    # three in known groups, plus the listed "🧪 Other" finding no group badge counts
+    assert parse_summary(MIXED)["count"] == 4
 
 
 def test_zero_bugs_does_not_hide_a_rule_violation():
@@ -246,3 +247,18 @@ def test_the_latest_review_is_found_past_the_first_page_and_brackets_in_bodies_s
     page2 = [{"user": {"login": "qodo-code-review[bot]"}, "body": f"{MARKER} uses a[0][1]", "updated_at": "2026-01-02"}]
     monkeypatch.setattr(qodo_review, "_run", lambda *a: json.dumps(page1) + json.dumps(page2))
     assert qodo_review._latest_review("o/r", 1)["body"] == f"{MARKER} uses a[0][1]"
+
+
+def test_a_finding_in_a_group_the_parser_does_not_know_is_still_returned():
+    # Every known group is zero, but Qodo lists a finding under a new group: it must not vanish.
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (0)</code> <code>📘 Rule violations (0)</code> <code>🔐 Secrets (1)</code>
+{BADGE.format("Low")}
+<details>
+<summary>  1.  Token printed in logs <code>🔐 Secret</code></summary>
+</details>
+"""
+    review = parse_summary(body)
+    assert review["count"] == 1
+    assert [(i["title"], i["severity"], i["kind"]) for i in review["items"]] == [
+        ("Token printed in logs", "low", "unknown")]
