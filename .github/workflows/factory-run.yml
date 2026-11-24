@@ -74,8 +74,12 @@ jobs:
             Serious findings are the owner's: don't fix or dismiss them. Stop for help when the gate
             reports the retry limit or a needs-user check. Never merge the PR and never add or
             remove the auto-merge-ok label.
+          # Nobody is there to approve a prompt, so the agent gets an allowlist of exactly the commands
+          # the ticket workflow runs (tests/test_factory_workflows.py). Denials still win. Not on it:
+          # discussion_post.py (forum posts need the owner's approval), gh api, merging, labels.
           claude_args: >-
             --max-turns 300
+            --allowedTools "Read,Edit,Write,Glob,Grep,Skill,Bash(python3 -m pytest:*),Bash(npm --prefix app:*),Bash(python3 scripts/factory.py:*),Bash(python3 scripts/qodo_review.py:*),Bash(python3 scripts/ticket_analysis.py:*),Bash(python3 scripts/backlog_order.py:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git switch:*),Bash(git branch:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git rev-parse:*),Bash(git push),Bash(git push -u origin ticket-:*),Bash(git push origin ticket-:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*)"
             --disallowedTools "Bash(gh pr merge:*) Bash(gh api:*) Bash(git push origin master:*) Bash(git push origin HEAD:master:*) Bash(git push --force:*)"
 
       - name: Find the PR

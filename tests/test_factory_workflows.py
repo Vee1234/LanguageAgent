@@ -40,3 +40,32 @@ def test_the_agent_job_has_no_oidc_token_and_is_denied_merging_api_calls_and_pus
     for rule in ["Bash(gh pr merge:*)", "Bash(gh api:*)", "Bash(git push origin master:*)",
                  "Bash(git push origin HEAD:master:*)", "Bash(git push --force:*)"]:
         assert rule in denied, rule
+
+
+def allowed_tools() -> list[str]:
+    build = jobs(RUN)["build"]
+    m = re.search(r'--allowedTools "([^"]*)"', build)
+    assert m, "the headless agent needs an allowlist: nobody is there to approve a prompt"
+    return [t.strip() for t in m.group(1).split(",") if t.strip()]
+
+
+def test_the_agent_may_run_exactly_the_commands_the_ticket_workflow_needs():
+    allowed = allowed_tools()
+    for tool in ["Read", "Edit", "Write", "Glob", "Grep",
+                 "Bash(python3 -m pytest:*)", "Bash(npm --prefix app:*)",
+                 "Bash(python3 scripts/factory.py:*)", "Bash(python3 scripts/qodo_review.py:*)",
+                 "Bash(python3 scripts/ticket_analysis.py:*)", "Bash(python3 scripts/backlog_order.py:*)",
+                 "Bash(git status:*)", "Bash(git diff:*)", "Bash(git add:*)", "Bash(git commit:*)",
+                 "Bash(git checkout:*)", "Bash(git branch:*)", "Bash(git ls-remote:*)", "Bash(git push)",
+                 "Bash(git push -u origin ticket-:*)", "Bash(gh pr create:*)", "Bash(gh pr view:*)",
+                 "Bash(gh pr list:*)", "Bash(gh pr diff:*)", "Bash(gh pr edit:*)", "Bash(gh pr comment:*)",
+                 "Bash(gh issue view:*)", "Bash(gh issue list:*)"]:
+        assert tool in allowed, tool
+
+
+def test_the_allowlist_never_opens_merging_the_api_the_forum_or_any_command():
+    allowed = allowed_tools()
+    assert "Bash" not in allowed and not any(t in allowed for t in ["Bash(*)", "Bash(:*)"])
+    for t in allowed:
+        assert not t.startswith(("Bash(gh pr merge", "Bash(gh api", "Bash(gh issue edit", "Bash(gh label")), t
+        assert "discussion_post" not in t, t  # forum posts need the owner's approval first
