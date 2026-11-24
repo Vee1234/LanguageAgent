@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.approvals import NEEDS_APPROVAL, needs_approval, option_id, render, item_id
+from scripts.approvals import IN_REVIEW, NEEDS_APPROVAL, STAGES, item_id, needs_approval, option_id, render, status_of
 
 REPO = "Vee1234/LanguageAgent"
 
@@ -43,3 +43,14 @@ def test_item_id_finds_this_repos_issue_on_the_board():
     items = [item(4, "Todo", repo="x/other"), item(4, "Todo")]
     assert item_id(items, REPO, 4) == "PVTI_4" and items[1]["id"] == "PVTI_4"
     assert item_id(items, REPO, 99) is None
+
+
+
+def test_the_board_stages_run_from_todo_through_review_and_approval_to_done():
+    assert STAGES == ["Todo", "In progress", IN_REVIEW, NEEDS_APPROVAL, "Done"]
+
+
+def test_status_of_reads_an_issues_current_column():
+    items = [item(4, IN_REVIEW), item(5, "Todo", repo="x/other")]
+    assert status_of(items, REPO, 4) == IN_REVIEW
+    assert status_of(items, REPO, 5) is None

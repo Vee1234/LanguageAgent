@@ -6,7 +6,7 @@ it (docs/factory.md, "Running on its own"). This lists them, and moves a ticket 
 Usage:
     python3 scripts/approvals.py            # list the tickets waiting for approval
     python3 scripts/approvals.py --hook     # the same, as PostToolUse context after a git push
-    python3 scripts/approvals.py set N      # move ticket N to Needs Approval
+    python3 scripts/approvals.py set N [--status "In Review"]   # move ticket N (default: Needs Approval)
 """
 from __future__ import annotations
 
@@ -20,7 +20,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT_TITLE = "Language Agent"
 STATUS_FIELD = "Status"
-NEEDS_APPROVAL = "Needs Approval"
+IN_REVIEW = "In Review"            # the PR is open and the Qodo cycle is running
+NEEDS_APPROVAL = "Needs Approval"  # the cycle is resolved and only the owner can finish it
+STAGES = ["Todo", "In progress", IN_REVIEW, NEEDS_APPROVAL, "Done"]
 
 
 # --- pure ------------------------------------------------------------------------
@@ -53,6 +55,14 @@ def option_id(fields: dict, field: str, option: str) -> tuple[str, str]:
                 if o.get("name") == option:
                     return f["id"], o["id"]
     raise LookupError(f"the project board has no '{option}' option in its '{field}' field")
+
+
+def status_of(items: list[dict], repo: str, number: int) -> str | None:
+    for i in items:
+        c = i.get("content") or {}
+        if c.get("type") == "Issue" and c.get("repository") == repo and c.get("number") == number:
+            return i.get("status")
+    return None
 
 
 def item_id(items: list[dict], repo: str, number: int) -> str | None:
@@ -95,12 +105,16 @@ def waiting() -> list[dict]:
     return tickets
 
 
-def set_needs_approval(ticket: int) -> None:
+def set_status(ticket: int, status: str) -> None:
+    """Move a ticket to a board column (adding it to the board if needed); no-op if it is there."""
     repo, owner, number = _project()
+    items = _items(owner, number)
+    if status_of(items, repo, ticket) == status:
+        return
     pid = json.loads(_gh("project", "view", number, "--owner", owner, "--format", "json"))["id"]
     field, option = option_id(json.loads(_gh("project", "field-list", number, "--owner", owner, "--format", "json")),
-                              STATUS_FIELD, NEEDS_APPROVAL)
-    iid = item_id(_items(owner, number), repo, ticket)
+                              STATUS_FIELD, status)
+    iid = item_id(items, repo, ticket)
     if iid is None:  # not on the board yet: add it
         iid = json.loads(_gh("project", "item-add", number, "--owner", owner, "--format", "json",
                              "--url", f"https://github.com/{repo}/issues/{ticket}"))["id"]
@@ -114,10 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd")
     s = sub.add_parser("set")
     s.add_argument("ticket", type=int)
+    s.add_argument("--status", default=NEEDS_APPROVAL, choices=STAGES)
     args = p.parse_args(argv)
     if args.cmd == "set":
-        set_needs_approval(args.ticket)
-        print(f"#{args.ticket} moved to {NEEDS_APPROVAL}")
+        set_status(args.ticket, args.status)
+        print(f"#{args.ticket} moved to {args.status}")
         return 0
     try:
         report = render(waiting())

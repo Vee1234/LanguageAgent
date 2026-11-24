@@ -14,8 +14,10 @@ def review(fresh=True, findings=()):
     return {"fresh": fresh, "findings": list(findings)}
 
 
-def f(fp, relevance=3):
-    return {"fingerprint": fp, "title": f"finding {fp}", "relevance": relevance, "category": "in-scope"}
+def f(fp, relevance=3, severity="medium", kind="rule-violation"):
+    # not serious by default: a medium rule violation is the agent's to fix
+    return {"fingerprint": fp, "title": f"finding {fp}", "relevance": relevance, "category": "in-scope",
+            "severity": severity, "kind": kind}
 
 
 def actions(result):
@@ -198,7 +200,7 @@ def run_merge(monkeypatch, approved, findings=()):
     monkeypatch.setattr(factory, "pr_comments", lambda n: [])
     monkeypatch.setattr(factory, "ticket_approved", lambda t: approved)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
-    monkeypatch.setattr(approvals, "set_needs_approval", lambda t: moved.append(t))
+    monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append(t) if s == approvals.NEEDS_APPROVAL else None)
     code = factory.cmd_merge(argparse.Namespace(pr="71", final=True))
     return code, calls, moved
 
@@ -213,3 +215,46 @@ def test_an_approved_ticket_merges_and_stays_out_of_needs_approval(monkeypatch):
     code, calls, moved = run_merge(monkeypatch, approved=True)
     assert code == 0 and moved == []
     assert ("pr", "merge", "71", "--squash", "--delete-branch", "--match-head-commit", HEAD) in calls
+
+
+
+# --- serious findings come back to the user, after the lower ones -------------
+
+def test_the_agent_works_on_lower_findings_first_and_leaves_serious_ones_for_the_user():
+    r = gate(HEAD, analysis(), review(findings=[f("low1"), f("bad", severity="high")]), {})
+    assert r["status"] == "work"
+    assert [a.get("fingerprint") for a in r["actions"]] == ["low1"]
+    assert [x["fingerprint"] for x in r["for_user"]] == ["bad"]
+
+
+def test_once_the_lower_findings_are_resolved_a_serious_one_goes_to_the_user():
+    r = gate(HEAD, analysis(), review(findings=[f("low1"), f("bad", severity="medium", kind="bug")]),
+             {"low1": {"verdict": "not-a-bug"}})
+    assert r["status"] == "user" and r["actions"] == []
+    d = merge_decision(r, [], approved=True, rounds=1)
+    assert d["decision"] == "user" and "finding bad" in " ".join(d["reasons"])
+
+
+def test_a_serious_finding_goes_to_the_user_whatever_verdict_the_agent_gave():
+    for v in ("confirmed", "not-a-bug", "out-of-scope"):
+        r = gate(HEAD, analysis(), review(findings=[f("bad", severity="critical")]), {"bad": {"verdict": v}})
+        assert r["status"] == "user", v
+
+
+def test_serious_findings_never_count_as_rounds_of_agent_work():
+    r = gate(HEAD, analysis(), review(findings=[f("bad", severity="high")]), {})
+    assert merge_decision(r, [], approved=True, rounds=9)["decision"] == "user"
+
+
+def test_the_gate_moves_the_ticket_to_in_review_while_the_qodo_cycle_runs(monkeypatch):
+    import argparse
+    from scripts import approvals, factory
+    moved = []
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": []}
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review(fresh=False))
+    monkeypatch.setattr(factory, "load_analysis", lambda h: analysis())
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])
+    monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append((t, s)))
+    factory.cmd_gate(argparse.Namespace(pr="71", threshold=2, hook=False))
+    assert moved == [(4, "In Review")]

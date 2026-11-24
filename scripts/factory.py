@@ -52,12 +52,14 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
             detail = "; ".join([f"{i['status']}: {i['text']}" for i in failing] + analysis.get("problems", []))
             actions.append({"kind": "fix-criteria", "detail": detail})
 
-    below = []
+    below, for_user = [], []
     if review["fresh"]:
         for f in review["findings"]:
             v = verdicts.get(f["fingerprint"])
             if f["relevance"] < threshold:
                 below.append(f)
+            elif serious(f):
+                for_user.append(f)  # never the agent's to fix or dismiss: it goes to the owner
             elif v is None:
                 actions.append({"kind": "triage", "fingerprint": f["fingerprint"],
                                 "detail": f"give a verdict on '{f['title']}' (relevance {f['relevance']}, {f['category']})"})
@@ -69,11 +71,12 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
         status = "work"
     elif not review["fresh"]:
         status = "wait"
-    elif needs_user:
+    elif needs_user or for_user:
         status = "user"
     else:
         status = "pass"
-    return {"status": status, "actions": actions, "below_threshold": below}
+    return {"status": status, "actions": actions, "below_threshold": below, "for_user": for_user,
+            "needs_user": needs_user}
 
 
 def should_block(previous: dict | None, head: str, digest: str) -> bool:
@@ -113,7 +116,11 @@ def merge_decision(gate_result: dict, findings: list[dict], approved: bool, roun
     if status == "wait":
         return {"decision": "continue", "reasons": ["waiting for Qodo's review of the head commit"]}
     if status == "user":
-        return {"decision": "user", "reasons": ["a needs-user check in the ticket analysis"]}
+        reasons = [f"serious finding for the owner: '{f['title']}' ({f.get('severity')}, {f.get('kind', 'unknown')})"
+                   for f in gate_result.get("for_user", [])]
+        if gate_result.get("needs_user", not reasons):
+            reasons.append("a needs-user check in the ticket analysis")
+        return {"decision": "user", "reasons": reasons}
     if not approved:
         return {"decision": "user", "reasons": [f"the owner has not labelled this ticket {AUTO_MERGE_LABEL}"]}
     cleared = [f for f in findings if serious(f)]
@@ -223,6 +230,9 @@ def render(info: dict, result: dict) -> str:
     out = [f"## Factory gate: PR #{info['number']} (ticket #{info['ticket']}) at {info['headRefOid'][:7]}: "
            f"{result['status'].upper()}", ""]
     out += [f"- {a['kind']}: {a['detail']}" for a in result["actions"]] or ["- Nothing left to do on this PR."]
+    if result.get("for_user"):
+        out += ["", "Serious, for the owner (after the agent's own work is done):"]
+        out += [f"- [{f.get('severity')}, {f.get('kind', 'unknown')}] {f['title']} ({f['fingerprint']})" for f in result["for_user"]]
     if result["below_threshold"]:
         out += ["", "Below the relevance threshold (listed, not blocking):"]
         out += [f"- [{f['relevance']}, {f['category']}] {f['title']} ({f['fingerprint']})" for f in result["below_threshold"]]
@@ -233,7 +243,7 @@ NEXT = {
     "work": "Do the actions below (ticket-resolver), push, and the cycle continues.",
     "wait": "Qodo hasn't reviewed this commit yet: run `python3 scripts/qodo_review.py --wait-minutes 15 "
             "--min-severity low` in the background and continue when it finishes.",
-    "user": "Only the user can finish this: ask them to do the needs-user checks with the exact steps.",
+    "user": "Only the user can finish this: bring them the serious findings and any needs-user checks, with the exact steps.",
     "pass": "The ticket passed. Do step 7 of ticket-resolver (`python3 scripts/factory.py feedback`) before the next ticket.",
 }
 
@@ -246,6 +256,11 @@ def cmd_gate(args) -> int:
     result = gate(head, load_analysis(head), current_review(info), latest_verdicts(read_ledger(), info["number"]),
                   args.threshold)
     report = render(info, result) + "\n\n" + NEXT[result["status"]]
+    if info["ticket"] and result["status"] in {"work", "wait"}:
+        try:
+            approvals.set_status(info["ticket"], approvals.IN_REVIEW)
+        except Exception as e:  # the gate still decides; say the board is out of date
+            report += f"\n\nWarning: couldn't move #{info['ticket']} to {approvals.IN_REVIEW} on the board: {e}"
     if not args.hook:
         print(report)
         return 0 if result["status"] == "pass" else 1
@@ -356,7 +371,7 @@ def cmd_merge(args) -> int:
         _gh("pr", "comment", n, "--body", f"Factory: **{labels[d['decision']]}** at {head[:7]}\n\n"
             + "\n".join(f"- {r}" for r in d["reasons"]))
         if d["decision"] == "user" and info["ticket"]:
-            approvals.set_needs_approval(info["ticket"])  # the board's Needs Approval column
+            approvals.set_status(info["ticket"], approvals.NEEDS_APPROVAL)
     return 1
 
 

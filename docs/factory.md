@@ -114,17 +114,20 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   and removing it withdraws approval. The agent runs with the job's own token, so it can't
   act as you.
 
-`factory.py merge` merges (squash, only at the head it checked) when **all** of these hold:
+**Serious findings come back to you.** A finding is serious when it is in scope (or names no
+files) and **high or critical**, or **medium and a 🐞 Bug** (not working as intended, security
+included); an unreadable severity counts as serious. The agent doesn't fix or dismiss these. It
+resolves every other finding first, and then the gate's status is `user` with the serious ones
+listed for you.
 
-1. the gate passed: the analysis passed, Qodo reviewed the head commit, every finding at or above the threshold has a clearing verdict;
-2. the owner labelled the ticket `auto-merge-ok`;
-3. no **serious** finding is still in Qodo's latest review. Serious means in scope (or naming no files)
-   and **high or critical**, or **medium and a 🐞 Bug** (not working as intended, security included).
-   An unreadable severity or kind counts as serious. A serious finding clears only by being fixed,
-   never by the agent's own `not-a-bug` or `out-of-scope` verdict.
+Board stages: **Todo → In progress** (the run started) **→ In Review** (PR open, the Qodo cycle
+is running; set by the gate) **→ Needs Approval** (the cycle is resolved and only you can finish
+it) **→ Done**.
 
-Otherwise the PR is labelled `needs-approval` with the reasons, the ticket moves to the
-**Needs Approval** column of the "Language Agent" project board, and you merge it or not.
+`factory.py merge` merges (squash, only at the head it checked) when the gate passed (the
+analysis passed, Qodo reviewed the head, every finding at or above the threshold is cleared and
+none is serious) **and** you labelled the ticket `auto-merge-ok`. Otherwise the PR is labelled
+`needs-approval` with the reasons, the ticket moves to **Needs Approval**, and you merge it or not.
 After every push, the `after-push.sh` hook lists what is in that column (the `approvals` skill;
 `python3 scripts/approvals.py` on demand).
 A `[use]` check about the phone needs `user:` evidence, so those tickets always come to you.
