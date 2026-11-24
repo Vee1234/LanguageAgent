@@ -24,3 +24,10 @@ def test_the_owners_token_is_only_in_jobs_on_a_fresh_checkout_of_master_without_
     for name, text in holders.items():
         assert "ref: ${{ github.event.repository.default_branch }}" in text, name
         assert "claude-code-action" not in text, name
+
+
+
+def test_the_start_job_refuses_a_ticket_that_is_not_the_owners_own_before_anything_runs():
+    start = jobs(RUN)["start"]
+    assert "python3 scripts/factory.py check-ticket" in start
+    assert start.index("check-ticket") < start.index("approvals.py set")

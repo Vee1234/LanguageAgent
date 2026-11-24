@@ -400,7 +400,31 @@ READY_LABEL = "ready-for-agent"
 HOLD_LABELS = {READY_LABEL, "agent-stuck"}  # one ticket at a time, and a stuck one waits for the user
 
 
-def choose_next(order: list, open_labels: dict[int, list[str]]) -> tuple[int | None, list[tuple[int, list[int]]]]:
+def owner_only(ticket: dict, owner: str) -> bool:
+    """Trusted only if the owner wrote the ticket and nobody else has edited it: the agent builds
+    from its text. An unknown author (a deleted account) is untrusted."""
+    return ticket.get("author") == owner and all(e == owner for e in ticket.get("editors", []))
+
+
+def ticket_authorship(n: int) -> dict:
+    owner, name = repo_name().split("/")
+    q = ("query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){"
+         "author{login} userContentEdits(first:100){totalCount nodes{editor{login}}}}}}")
+    issue = json.loads(_gh("api", "graphql", "-f", f"query={q}", "-F", f"o={owner}", "-F", f"r={name}",
+                           "-F", f"n={n}"))["data"]["repository"]["issue"]
+    edits = issue["userContentEdits"]
+    editors = [(e.get("editor") or {}).get("login") for e in edits["nodes"]]
+    if edits["totalCount"] > len(editors):
+        editors.append(None)  # more edits than we read: unknown, so untrusted
+    return {"author": (issue.get("author") or {}).get("login"), "editors": editors}
+
+
+def trusted_ticket(n: int) -> bool:
+    return owner_only(ticket_authorship(n), repo_name().split("/")[0])
+
+
+def choose_next(order: list, open_labels: dict[int, list[str]],
+                untrusted: set[int] = frozenset()) -> tuple[int | None, list[tuple[int, list[int]]]]:
     """(the ticket to label next, the tickets held for the owner).
 
     Next is the first ticket in backlog order that nothing open blocks, isn't in an open PR and
@@ -409,7 +433,8 @@ def choose_next(order: list, open_labels: dict[int, list[str]]) -> tuple[int | N
     held = [(e.number, list(e.closed_prs)) for e in order if e.closed_prs and not e.in_review]
     if any(HOLD_LABELS & set(ls) for ls in open_labels.values()):
         return None, held
-    nxt = next((e.number for e in order if not e.blocked_by and not e.in_review and not e.closed_prs), None)
+    nxt = next((e.number for e in order if not e.blocked_by and not e.in_review and not e.closed_prs
+                and e.number not in untrusted), None)
     return nxt, held
 
 
@@ -418,7 +443,13 @@ def cmd_next(args) -> int:
     repo = repo_name()
     issues = backlog_order.fetch_issues(repo)
     plan = backlog_order.order_backlog(issues, backlog_order.parse_category_order(backlog_order.BACKLOG_DOC.read_text()))
-    chosen, held = choose_next(plan.order, {i.number: i.labels for i in issues if i.state == "OPEN"})
+    labels = {i.number: i.labels for i in issues if i.state == "OPEN"}
+    untrusted: set[int] = set()
+    chosen, held = choose_next(plan.order, labels)
+    while chosen is not None and not trusted_ticket(chosen):
+        print(f"Skipped #{chosen}: not written and edited only by the owner")
+        untrusted.add(chosen)
+        chosen, held = choose_next(plan.order, labels, untrusted)
     for n, prs in held:
         print(f"Held for the owner: #{n} (closed without merging: {', '.join(f'#{p}' for p in prs)})")
         if not args.dry_run and approvals.set_status(n, approvals.NEEDS_APPROVAL):  # explain once, when it moves
@@ -433,6 +464,17 @@ def cmd_next(args) -> int:
     if not args.dry_run:
         _gh("issue", "edit", str(chosen), "--add-label", READY_LABEL)
     return 0
+
+
+def cmd_check_ticket(args) -> int:
+    """Refuse to build a ticket that isn't the owner's own (run before the agent starts)."""
+    if trusted_ticket(args.ticket):
+        print(f"#{args.ticket} was written, and only edited, by the owner.")
+        return 0
+    _gh("issue", "edit", str(args.ticket), "--remove-label", READY_LABEL, "--add-label", "agent-stuck")
+    _gh("issue", "comment", str(args.ticket), "--body", "Factory: not built. The factory builds only tickets the "
+        "owner wrote and nobody else edited. Copy it into a ticket of your own to have it built.")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -458,9 +500,11 @@ def main(argv: list[str] | None = None) -> int:
     mg.add_argument("--ledger", help="the PR's review ledger, read as data (the merge job runs master's code)")
     nx = sub.add_parser("next")
     nx.add_argument("--dry-run", action="store_true")
+    ck = sub.add_parser("check-ticket")
+    ck.add_argument("ticket", type=int)
     args = p.parse_args(argv)
     return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback,
-            "merge": cmd_merge, "next": cmd_next}[args.cmd](args)
+            "merge": cmd_merge, "next": cmd_next, "check-ticket": cmd_check_ticket}[args.cmd](args)
 
 
 if __name__ == "__main__":

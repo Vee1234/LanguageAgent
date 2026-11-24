@@ -118,6 +118,10 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   over as a file. `merge` reads the PR's changed files from GitHub and its ledger as data, and
   never runs the PR's code. A PR that changes the factory's own code (`.github/`, `.claude/`,
   `scripts/`, `AGENTS.md`, `docs/factory.md`) never merges on its own.
+- **Only your own tickets.** The repo's interaction limit is collaborators-only (renew it every
+  6 months: `gh api -X PUT repos/{owner}/{repo}/interaction-limits -f limit=collaborators_only -f expiry=six_months`).
+  As a backstop, `next` and the `start` job build a ticket only if you wrote it and nobody else
+  edited it, and the push report carries numbers and links, never titles.
 - **Who decides the merge.** You do, per ticket, before the work starts: label the ticket
   `auto-merge-ok`. Only the repo owner adding it counts; a bot or the agent adding it doesn't,
   and removing it withdraws approval. The agent runs with the job's own token, so it can't

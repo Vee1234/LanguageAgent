@@ -38,13 +38,15 @@ def needs_approval(items: list[dict], repo: str) -> list[dict]:
     return sorted(out, key=lambda t: t["number"])
 
 
-def render(tickets: list[dict]) -> str:
+def render(tickets: list[dict], repo: str) -> str:
+    """Numbers, and links built from them, only. Titles are text other people could write, and this
+    report goes into the agent's context, so it never carries them."""
     if not tickets:
         return "No tickets are waiting in Needs Approval."
     lines = [f"{len(tickets)} ticket(s) waiting in Needs Approval:"]
     for t in tickets:
-        prs = ", ".join(f"PR #{p}" for p in t.get("prs", [])) or "no open PR"
-        lines.append(f"- #{t['number']} {t['title']} ({prs}) {t['url']}")
+        prs = ", ".join(f"PR #{int(p)} https://github.com/{repo}/pull/{int(p)}" for p in t.get("prs", [])) or "no open PR"
+        lines.append(f"- #{int(t['number'])} https://github.com/{repo}/issues/{int(t['number'])} ({prs})")
     return "\n".join(lines)
 
 
@@ -95,7 +97,7 @@ def _items(owner: str, number: str) -> list[dict]:
     return json.loads(_gh("project", "item-list", number, "--owner", owner, "--limit", "500", "--format", "json"))["items"]
 
 
-def waiting() -> list[dict]:
+def waiting() -> tuple[str, list[dict]]:
     repo, owner, number = _project()
     tickets = needs_approval(_items(owner, number), repo)
     prs = json.loads(_gh("pr", "list", "--state", "open", "--json", "number,body,headRefName"))
@@ -103,7 +105,7 @@ def waiting() -> list[dict]:
         t["prs"] = [p["number"] for p in prs
                     if re.search(rf"^Closes #{t['number']}\s*$", p["body"] or "", re.M)
                     or p["headRefName"].startswith(f"ticket-{t['number']}-")]
-    return tickets
+    return repo, tickets
 
 
 def set_status(ticket: int, status: str) -> bool:
@@ -137,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"#{args.ticket} moved to {args.status}")
         return 0
     try:
-        report = render(waiting())
+        report = render(*reversed(waiting()))
     except (subprocess.SubprocessError, LookupError, json.JSONDecodeError, KeyError) as e:
         if not args.hook:
             raise

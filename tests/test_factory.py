@@ -218,6 +218,7 @@ def test_next_moves_a_held_ticket_to_needs_approval_and_explains_once(monkeypatc
     monkeypatch.setattr(backlog_order, "order_backlog", lambda issues, order: plan)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
     monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append((t, s)) or len(moved) == 1)
+    monkeypatch.setattr(factory, "trusted_ticket", lambda n: True)
     for _ in range(2):  # a second run must not comment again
         factory.cmd_next(argparse.Namespace(dry_run=False))
     assert moved[0] == (37, approvals.NEEDS_APPROVAL)
@@ -354,3 +355,21 @@ def test_merge_reads_verdicts_from_the_ledger_file_handed_over_from_the_pr(monke
     code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=str(tmp_path / "a.json"),
                                                 ledger=str(tmp_path / "ledger.jsonl")))
     assert code == 0 and any(c[:2] == ("pr", "merge") for c in calls)
+
+
+
+# --- only the owner's own tickets are built ------------------------------------
+
+from scripts.factory import owner_only  # noqa: E402
+
+
+def test_a_ticket_is_trusted_only_if_the_owner_wrote_it_and_only_the_owner_edited_it():
+    assert owner_only({"author": "Vee1234", "editors": []}, "Vee1234")
+    assert owner_only({"author": "Vee1234", "editors": ["Vee1234"]}, "Vee1234")
+    assert not owner_only({"author": "stranger", "editors": []}, "Vee1234")
+    assert not owner_only({"author": "Vee1234", "editors": ["Vee1234", "stranger"]}, "Vee1234")
+    assert not owner_only({"author": None, "editors": []}, "Vee1234")  # a deleted account: unknown is untrusted
+
+
+def test_next_skips_tickets_that_are_not_the_owners_own():
+    assert choose_next([entry(7), entry(8)], {}, untrusted={7}) == (8, [])
