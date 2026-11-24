@@ -25,6 +25,11 @@ from datetime import datetime, timedelta, timezone  # deadline only
 
 MARKER = "Code Review by Qodo"
 _COUNT = re.compile(r"Bugs \((\d+)\)")
+# Qodo's group counts and each finding's own tag, e.g. <code>📘 Rule violations (1)</code> and
+# <code>📘 Rule violation</code>: fixed markup on the summary lines, never quoted text (W1).
+_GROUP_COUNT = re.compile(r"<code>[^<]*?(?:Bugs|Rule violations|Requirement gaps) \((\d+)\)\s*</code>")
+_KIND = re.compile(r"<code>[^<]*?(Bug|Rule violation|Requirement gap)\s*</code>")
+KINDS = {"Bug": "bug", "Rule violation": "rule-violation", "Requirement gap": "requirement-gap"}
 _ITEM = re.compile(r"<summary>\s*\d+\.\s+(.*?)\s*(?:<code>|</summary>)", re.S)
 _PROMPT = re.compile(r"Agent prompt</summary>.*?```[^\n]*\n(.*?)\n[> ]*```", re.S)
 # The heading of Qodo's resolved section: match the exact markup, not the phrase, because a finding's
@@ -61,7 +66,8 @@ def parse_summary(body: str) -> dict:
     m = _COUNT.search(body)
     if not m:
         return {"count": None, "items": []}
-    count = int(m.group(1))
+    # Every group counts: a review with no bugs can still have a rule violation.
+    count = sum(int(n) for n in _GROUP_COUNT.findall(body)) or int(m.group(1))
 
     # Findings Qodo has marked resolved are listed after the open ones; only open ones are work.
     resolved = _RESOLVED_HEADING.search(body)
@@ -74,9 +80,12 @@ def parse_summary(body: str) -> dict:
         segment = open_part[match.start():end]
         prompt = _PROMPT.search(segment)
         above = [sev for pos, sev in badges if pos < match.start()]
+        summary_line = segment[: segment.find("</summary>")] if "</summary>" in segment else ""
+        kind = _KIND.search(summary_line)
         items.append({
             "title": html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip(),
             "severity": above[-1] if above else "unknown",
+            "kind": KINDS[kind.group(1)] if kind else "unknown",
             "prompt": _unquote(prompt.group(1)) if prompt else "",
         })
     return {"count": count, "items": items if count else []}

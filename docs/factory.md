@@ -89,3 +89,44 @@ any other tag, including lessons still waiting for approval.
 | `workflow` findings, and `not-a-bug` with reason `wrong` or `by-design` | **Noise:** irrelevant findings. |
 
 These are proposals. A rule, lesson or skill changes only after the user approves it (L2).
+
+## Running on its own (auto-merge)
+
+Two GitHub Actions workflows run the cycle without a session:
+
+```
+PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ factory-run ──▶ factory.py merge
+              (factory.py next: backlog_order's      (Claude Code: ticket-resolver      │
+               next ticket, no AI)                    until the gate passes)            ▼
+                                                                    merge │ needs-approval │ agent-stuck
+```
+
+- **Next ticket.** `factory.py next` labels backlog_order's next ticket: nothing open blocks it,
+  it isn't already in a PR, and within its category it is the most painful to change later. It does
+  nothing while any open ticket is `ready-for-agent` or `agent-stuck`, so there is one at a time.
+- **One agent at a time.** `factory-run` uses a concurrency group, so two runs never take the same ticket.
+- **Retry limit.** Each head the gate finds work on is a round, recorded as a
+  `<!-- factory-round head=SHA -->` PR comment. After **3** rounds the gate stops blocking and
+  `factory.py merge` labels the PR and ticket `agent-stuck`. A run that ends before the gate
+  finishes (Qodo never reviewed, no PR) is also `agent-stuck`.
+- **Who decides the merge.** You do, per ticket, before the work starts: label the ticket
+  `auto-merge-ok`. Only the repo owner adding it counts; a bot or the agent adding it doesn't,
+  and removing it withdraws approval. The agent runs with the job's own token, so it can't
+  act as you.
+
+`factory.py merge` merges (squash, only at the head it checked) when **all** of these hold:
+
+1. the gate passed: the analysis passed, Qodo reviewed the head commit, every finding at or above the threshold has a clearing verdict;
+2. the owner labelled the ticket `auto-merge-ok`;
+3. no **serious** finding is still in Qodo's latest review. Serious means in scope (or naming no files)
+   and **high or critical**, or **medium and a 🐞 Bug** (not working as intended, security included).
+   An unreadable severity or kind counts as serious. A serious finding clears only by being fixed,
+   never by the agent's own `not-a-bug` or `out-of-scope` verdict.
+
+Otherwise the PR is labelled `needs-approval` with the reasons, and you merge it or not.
+A `[use]` check about the phone needs `user:` evidence, so those tickets always come to you.
+
+Setup: repo secrets `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `FACTORY_TOKEN` (a
+fine-grained token with contents, issues and pull requests write: a label or merge made with
+`GITHUB_TOKEN` would not start the next workflow), and the labels `ready-for-agent`,
+`auto-merge-ok`, `needs-approval` and `agent-stuck`.

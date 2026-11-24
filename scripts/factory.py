@@ -11,6 +11,8 @@ Usage:
     python3 scripts/factory.py verdict --fingerprint FP --verdict not-a-bug --reason missing-context --note "…"
     python3 scripts/factory.py verdict --fingerprint FP --verdict out-of-scope --new-ticket 70
     python3 scripts/factory.py feedback [--pr N]
+    python3 scripts/factory.py merge [--pr N] [--final]  # merge if the owner approved and nothing serious was waved through
+    python3 scripts/factory.py next [--dry-run]    # label the next ticket ready-for-agent
 """
 from __future__ import annotations
 
@@ -79,6 +81,71 @@ def should_block(previous: dict | None, head: str, digest: str) -> bool:
     return previous is None or previous.get("head") != head or previous.get("digest") != digest
 
 
+# --- auto-merge (pure) -----------------------------------------------------------
+
+AUTO_MERGE_LABEL = "auto-merge-ok"   # only the repo owner's adding it counts
+MAX_ROUNDS = 3                       # gate rounds with work left before the agent stops for help
+_ROUND = re.compile(r"^<!-- factory-round head=([0-9a-f]{40}) -->", re.M)
+
+
+def serious(f: dict) -> bool:
+    """A finding only a fix or the user may clear: high or worse, or a medium bug (something not
+    working as intended, security included). Unknown severity or kind counts as serious. Findings
+    outside the diff or only on workflow files are not this PR's to merge on."""
+    if f.get("category") not in {"in-scope", "unplaced"}:
+        return False
+    sev, kind = f.get("severity"), f.get("kind", "unknown")
+    if sev not in review_triage.SEVERITY_BASE or sev in {"high", "critical"}:
+        return True
+    return sev == "medium" and kind in {"bug", "unknown"}
+
+
+def merge_decision(gate_result: dict, findings: list[dict], approved: bool, rounds: int,
+                   max_rounds: int = MAX_ROUNDS) -> dict:
+    """merge, continue (the agent keeps going or waits for Qodo), user (only the user can finish
+    it), or stuck (the retry limit was reached with work left)."""
+    status = gate_result["status"]
+    if status == "work":
+        if rounds >= max_rounds:
+            return {"decision": "stuck", "reasons": [f"{rounds} rounds and the gate still has work: "
+                                                     + "; ".join(a["detail"] for a in gate_result["actions"])]}
+        return {"decision": "continue", "reasons": []}
+    if status == "wait":
+        return {"decision": "continue", "reasons": ["waiting for Qodo's review of the head commit"]}
+    if status == "user":
+        return {"decision": "user", "reasons": ["a needs-user check in the ticket analysis"]}
+    if not approved:
+        return {"decision": "user", "reasons": [f"the owner has not labelled this ticket {AUTO_MERGE_LABEL}"]}
+    cleared = [f for f in findings if serious(f)]
+    if cleared:
+        return {"decision": "user", "reasons": [
+            f"serious finding cleared by the agent's own verdict, not by a fix: '{f['title']}' "
+            f"({f.get('severity')}, {f.get('kind', 'unknown')})" for f in cleared]}
+    return {"decision": "merge", "reasons": []}
+
+
+def round_marker(head: str) -> str:
+    return f"<!-- factory-round head={head} -->"
+
+
+def count_rounds(comments: list[str]) -> int:
+    """Rounds are distinct heads the gate found work on, from markers that start a PR comment."""
+    return len({m for c in comments for m in _ROUND.findall(c)})
+
+
+def approved_by_owner(events: list[dict], owner: str, label: str = AUTO_MERGE_LABEL) -> bool:
+    """True when the label's latest change was the owner adding it. Removing it withdraws
+    approval, and anyone else adding it (a bot, the agent) does not count."""
+    approved = False
+    for e in events:
+        if (e.get("label") or {}).get("name") != label:
+            continue
+        if e.get("event") == "unlabeled":
+            approved = False
+        elif e.get("event") == "labeled":
+            approved = (e.get("actor") or {}).get("login") == owner
+    return approved
+
 # --- GitHub, the ledger and local state ------------------------------------------
 
 def _gh(*args: str) -> str:
@@ -127,6 +194,31 @@ def load_analysis(head: str) -> dict | None:
     return json.loads(p.read_text()) if p.exists() else None
 
 
+def repo_name() -> str:
+    return _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
+
+
+def pr_comments(number: int) -> list[str]:
+    return json.loads(_gh("api", f"repos/{repo_name()}/issues/{number}/comments", "--paginate",
+                          "--jq", "[.[].body]") or "[]")
+
+
+def record_round(info: dict) -> int:
+    """Mark this head as a round with work (once per head) and return the number of rounds."""
+    comments = pr_comments(info["number"])
+    if not any(c.startswith(round_marker(info["headRefOid"])) for c in comments):
+        body = f"{round_marker(info['headRefOid'])}\nFactory round on {info['headRefOid'][:7]}: the gate has work left."
+        _gh("pr", "comment", str(info["number"]), "--body", body)
+        comments.append(body)
+    return count_rounds(comments)
+
+
+def ticket_approved(ticket: int) -> bool:
+    repo = repo_name()
+    events = json.loads(_gh("api", f"repos/{repo}/issues/{ticket}/events", "--paginate", "--jq", "[.[]]") or "[]")
+    return approved_by_owner(events, repo.split("/")[0])
+
+
 def render(info: dict, result: dict) -> str:
     out = [f"## Factory gate: PR #{info['number']} (ticket #{info['ticket']}) at {info['headRefOid'][:7]}: "
            f"{result['status'].upper()}", ""]
@@ -161,7 +253,11 @@ def cmd_gate(args) -> int:
     state_file = state_dir() / f"gate-{info['number']}.json"
     previous = json.loads(state_file.read_text()) if state_file.exists() else None
     digest = hashlib.sha1(json.dumps(result["actions"], sort_keys=True).encode()).hexdigest()
-    if result["status"] == "work" and should_block(previous, head, digest):
+    if result["status"] == "work" and record_round(info) >= MAX_ROUNDS:
+        print(json.dumps({"systemMessage": f"Factory gate: PR #{info['number']} reached the retry limit "
+                                           f"({MAX_ROUNDS} rounds). Run `python3 scripts/factory.py merge` "
+                                           "to label it agent-stuck, then stop and tell the user what is stuck."}))
+    elif result["status"] == "work" and should_block(previous, head, digest):
         state_file.write_text(json.dumps({"head": head, "digest": digest}))
         print(json.dumps({"decision": "block", "reason": "Factory gate (ticket-resolver): " + report}))
     elif result["status"] == "work":
@@ -234,6 +330,60 @@ def cmd_feedback(args) -> int:
     return 0
 
 
+def cmd_merge(args) -> int:
+    """Merge the PR if the gate passed, the owner approved the ticket and no serious finding was
+    cleared by the agent's own verdict. Otherwise hand it to the user or mark it stuck."""
+    info = pr_info(args.pr)
+    head, n = info["headRefOid"], str(info["number"])
+    review = current_review(info)
+    result = gate(head, load_analysis(head), review, latest_verdicts(read_ledger(), info["number"]))
+    rounds = record_round(info) if result["status"] == "work" else count_rounds(pr_comments(info["number"]))
+    approved = bool(info["ticket"]) and ticket_approved(info["ticket"])
+    d = merge_decision(result, review["findings"], approved, rounds)
+    if args.final and d["decision"] == "continue":
+        # The run is over, so nothing will continue it: hand it to the user rather than leave it hanging.
+        d = {"decision": "stuck", "reasons": ["the run ended before the gate finished: "
+                                              + ("; ".join(d["reasons"]) or result["status"])]}
+    print(render(info, result) + f"\n\nAuto-merge: {d['decision'].upper()}" + "".join(f"\n- {r}" for r in d["reasons"]))
+    labels = {"user": "needs-approval", "stuck": "agent-stuck"}
+    if d["decision"] == "merge":
+        _gh("pr", "merge", n, "--squash", "--delete-branch", "--match-head-commit", head)
+        return 0
+    if d["decision"] in labels:
+        _gh("pr", "edit", n, "--add-label", labels[d["decision"]])
+        if info["ticket"]:
+            _gh("issue", "edit", str(info["ticket"]), "--remove-label", "ready-for-agent", "--add-label", labels[d["decision"]])
+        _gh("pr", "comment", n, "--body", f"Factory: **{labels[d['decision']]}** at {head[:7]}\n\n"
+            + "\n".join(f"- {r}" for r in d["reasons"]))
+    return 1
+
+
+READY_LABEL = "ready-for-agent"
+HOLD_LABELS = {READY_LABEL, "agent-stuck"}  # one ticket at a time, and a stuck one waits for the user
+
+
+def choose_next(plan_next: int | None, open_labels: dict[int, list[str]]) -> int | None:
+    """The ticket to label next: none while a ticket is queued or stuck, else backlog order's next."""
+    if any(HOLD_LABELS & set(ls) for ls in open_labels.values()):
+        return None
+    return plan_next
+
+
+def cmd_next(args) -> int:
+    from scripts import backlog_order
+    repo = repo_name()
+    issues = backlog_order.fetch_issues(repo)
+    plan = backlog_order.order_backlog(issues, backlog_order.parse_category_order(backlog_order.BACKLOG_DOC.read_text()))
+    chosen = choose_next(plan.next, {i.number: i.labels for i in issues if i.state == "OPEN"})
+    if chosen is None:
+        print("Nothing to label: a ticket is already ready-for-agent or agent-stuck, or nothing is unblocked.")
+        return 0
+    print(f"Next: #{chosen}")
+    if not args.dry_run:
+        _gh("issue", "edit", str(chosen), "--add-label", READY_LABEL)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -250,8 +400,14 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--new-ticket", type=int)
     fb = sub.add_parser("feedback")
     fb.add_argument("--pr")
+    mg = sub.add_parser("merge")
+    mg.add_argument("--pr")
+    mg.add_argument("--final", action="store_true", help="the agent's run is over: unfinished means stuck")
+    nx = sub.add_parser("next")
+    nx.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
-    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback}[args.cmd](args)
+    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback,
+            "merge": cmd_merge, "next": cmd_next}[args.cmd](args)
 
 
 if __name__ == "__main__":

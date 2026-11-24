@@ -1,0 +1,26 @@
+# Factory, step 1: when a ticket's PR is merged, label the next ticket ready-for-agent.
+# No AI here: scripts/factory.py next takes backlog_order's next ticket (dependencies first, then
+# the one most painful to change later). It does nothing while a ticket is queued or stuck.
+name: factory-next
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"   # backup, in case a merge event was missed
+
+jobs:
+  next:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'ticket-'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Label the next ticket
+        # A personal access token, not GITHUB_TOKEN: a label added with GITHUB_TOKEN would not
+        # start factory-run.
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+        run: python3 scripts/factory.py next

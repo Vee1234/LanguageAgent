@@ -1,3 +1,5 @@
+import pytest
+
 from scripts.factory import gate, should_block
 
 HEAD = "a" * 40
@@ -89,3 +91,96 @@ def test_the_hook_blocks_again_only_after_progress():
     assert not should_block(state, HEAD, "d1")
     assert should_block(state, HEAD, "d2")
     assert should_block(state, "b" * 40, "d1")
+
+
+# --- auto-merge --------------------------------------------------------------
+
+from scripts.factory import approved_by_owner, count_rounds, merge_decision, round_marker  # noqa: E402
+
+PASS = {"status": "pass", "actions": [], "below_threshold": []}
+
+
+def sf(fp="x", severity="medium", kind="bug", category="in-scope"):
+    return {"fingerprint": fp, "title": f"finding {fp}", "severity": severity, "kind": kind,
+            "category": category, "relevance": 3}
+
+
+def decide(gate_result=PASS, findings=(), approved=True, rounds=1):
+    return merge_decision(gate_result, list(findings), approved=approved, rounds=rounds)
+
+
+def test_a_passed_approved_ticket_with_no_serious_findings_merges():
+    assert decide()["decision"] == "merge"
+    # a low finding, or a medium rule violation cleared by a verdict, is not serious
+    assert decide(findings=[sf(severity="low"), sf("y", kind="rule-violation")])["decision"] == "merge"
+
+
+def test_a_ticket_the_owner_did_not_approve_waits_for_the_user():
+    r = decide(approved=False)
+    assert r["decision"] == "user" and "auto-merge-ok" in r["reasons"][0]
+
+
+@pytest.mark.parametrize("finding", [
+    sf(severity="high", kind="rule-violation"),
+    sf(severity="critical", kind="requirement-gap"),
+    sf(severity="unknown", kind="rule-violation"),
+    sf(severity="medium", kind="bug"),
+    sf(severity="medium", kind="unknown"),
+    sf(severity="high", category="unplaced"),
+])
+def test_a_serious_finding_the_agent_cleared_itself_needs_the_user(finding):
+    # The gate passed, so the agent gave it a not-a-bug or out-of-scope verdict. For a serious
+    # finding only a fix (it is gone from the review) or the user may clear it.
+    r = decide(findings=[finding])
+    assert r["decision"] == "user" and finding["title"] in r["reasons"][0]
+
+
+def test_serious_findings_outside_the_diff_or_on_workflow_files_do_not_stop_a_merge():
+    assert decide(findings=[sf(severity="high", category="outside-diff"),
+                            sf("y", severity="critical", category="workflow")])["decision"] == "merge"
+
+
+@pytest.mark.parametrize("status, decision", [("work", "continue"), ("wait", "continue"), ("user", "user")])
+def test_an_unfinished_gate_never_merges(status, decision):
+    assert decide(gate_result={**PASS, "status": status}, rounds=1)["decision"] == decision
+
+
+def test_the_agent_stops_for_help_after_the_retry_limit():
+    work = {**PASS, "status": "work"}
+    assert decide(gate_result=work, rounds=2)["decision"] == "continue"
+    assert decide(gate_result=work, rounds=3)["decision"] == "stuck"
+    assert decide(rounds=5)["decision"] == "merge"  # rounds only matter while there is work left
+
+
+def test_rounds_count_distinct_heads_from_the_markers_in_pr_comments():
+    comments = [round_marker("a" * 40) + " round 1", "unrelated", round_marker("b" * 40), round_marker("a" * 40),
+                "quoted <!-- factory-round head=nonsense -->"]
+    assert count_rounds(comments) == 2
+
+
+def labeled(label, actor, kind="labeled"):
+    return {"event": kind, "label": {"name": label}, "actor": {"login": actor}}
+
+
+def test_only_the_owner_adding_the_label_approves_auto_merge():
+    assert approved_by_owner([labeled("auto-merge-ok", "Vee1234")], "Vee1234")
+    assert not approved_by_owner([labeled("auto-merge-ok", "github-actions[bot]")], "Vee1234")
+    assert not approved_by_owner([labeled("other", "Vee1234")], "Vee1234")
+    assert not approved_by_owner([], "Vee1234")
+
+
+def test_removing_the_label_withdraws_approval_and_a_bot_cannot_restore_it():
+    events = [labeled("auto-merge-ok", "Vee1234"), labeled("auto-merge-ok", "x", "unlabeled")]
+    assert not approved_by_owner(events, "Vee1234")
+    assert not approved_by_owner(events + [labeled("auto-merge-ok", "claude[bot]")], "Vee1234")
+    assert approved_by_owner(events + [labeled("auto-merge-ok", "Vee1234")], "Vee1234")
+
+
+from scripts.factory import choose_next  # noqa: E402
+
+
+def test_the_next_ticket_is_backlog_orders_next_unless_one_is_queued_or_stuck():
+    assert choose_next(7, {3: ["enhancement"], 7: []}) == 7
+    assert choose_next(7, {3: ["ready-for-agent"], 7: []}) is None
+    assert choose_next(7, {3: ["agent-stuck"], 7: []}) is None
+    assert choose_next(None, {}) is None

@@ -12,3 +12,4 @@ supabase/.branches/
 !.claude/skills/
 !.claude/hooks/
 !.claude/settings.json
+.vite/

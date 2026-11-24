@@ -194,3 +194,45 @@ def test_not_a_qodo_review():
     assert parse_summary("<h3>PR Summary by Qodo</h3> …")["count"] is None
 
 
+
+
+# --- finding kinds (auto-merge needs to tell bugs from rule violations) ------
+
+MIXED = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (1)</code> <code>📘 Rule violations (1)</code> <code>📎 Requirement gaps (1)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Saving can freeze paging <code>🐞 Bug</code></summary>
+</details>
+<details>
+<summary>  2.  Card hides a missing register <code>📘 Rule violation</code></summary>
+</details>
+<details>
+<summary>  3.  Edge case not covered <code>📎 Requirement gap</code></summary>
+</details>
+<details>
+<summary>  4.  Something new <code>🧪 Other</code></summary>
+</details>
+"""
+
+
+def test_each_finding_takes_its_kind_from_its_own_tag():
+    assert [i["kind"] for i in parse_summary(MIXED)["items"]] == [
+        "bug", "rule-violation", "requirement-gap", "unknown"]
+
+
+def test_the_count_covers_every_group_not_only_bugs():
+    assert parse_summary(MIXED)["count"] == 3
+
+
+def test_zero_bugs_does_not_hide_a_rule_violation():
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (0)</code> <code>📘 Rule violations (1)</code> <code>📎 Requirement gaps (0)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Card hides a missing register <code>📘 Rule violation</code></summary>
+</details>
+"""
+    review = parse_summary(body)
+    assert review["count"] == 1
+    assert [(i["title"], i["kind"]) for i in review["items"]] == [("Card hides a missing register", "rule-violation")]

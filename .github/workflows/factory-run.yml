@@ -1,0 +1,70 @@
+# Factory, step 2: a ticket labelled ready-for-agent is built by Claude Code (ticket-resolver),
+# reviewed by Qodo and fixed until the gate passes or the retry limit is hit. Then
+# scripts/factory.py merge decides: merge only if the owner labelled the ticket auto-merge-ok and
+# no serious finding was cleared by the agent's own verdict; otherwise needs-approval or agent-stuck.
+name: factory-run
+
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: factory        # one agent at a time, so two runs can never take the same ticket
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event.label.name == 'ready-for-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    env:
+      TICKET: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: npm, cache-dependency-path: app/package-lock.json }
+      - name: Install
+        run: |
+          pip install python-dotenv pytest
+          npm --prefix app ci
+
+      - name: Build the ticket
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The job's own token, never the owner's: anything the agent labels shows as a bot, so it
+          # can't fake the owner's auto-merge-ok approval (factory.py checks who added the label).
+          github_token: ${{ github.token }}
+          prompt: |
+            Use the ticket-resolver skill on ticket #${{ env.TICKET }} only. Follow AGENTS.md and
+            docs/factory.md: build it test-first on a ticket-${{ env.TICKET }}-<slug> branch, open the PR,
+            run the ticket analysis, wait for Qodo's review in the foreground
+            (python3 scripts/qodo_review.py --wait-minutes 20 --min-severity low), record verdicts and
+            fix confirmed findings until `python3 scripts/factory.py gate` passes. Stop for help when
+            the gate reports the retry limit or a needs-user check. Never merge the PR and never
+            add or remove the auto-merge-ok label.
+          claude_args: >-
+            --max-turns 300
+            --disallowedTools "Bash(gh pr merge:*)"
+
+      - name: Merge, hand to the user, or mark stuck
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}   # so the merge starts factory-next
+        run: |
+          pr=$(gh pr list --state open --json number,headRefName \
+                 -q ".[] | select(.headRefName | startswith(\"ticket-${TICKET}-\")) | .number" | head -1)
+          if [ -z "$pr" ]; then
+            gh issue edit "$TICKET" --remove-label ready-for-agent --add-label agent-stuck
+            gh issue comment "$TICKET" --body "Factory: the agent finished without opening a PR. Marked agent-stuck."
+            exit 1
+          fi
+          python3 scripts/factory.py merge --pr "$pr" --final
