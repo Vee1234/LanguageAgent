@@ -262,3 +262,20 @@ def test_a_finding_in_a_group_the_parser_does_not_know_is_still_returned():
     assert review["count"] == 1
     assert [(i["title"], i["severity"], i["kind"]) for i in review["items"]] == [
         ("Token printed in logs", "low", "unknown")]
+
+
+def test_the_kind_is_the_tag_that_ends_the_summary_line_not_one_inside_the_title():
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (2)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Crash on <code>Rule violation</code> parsing <code>🐞 Bug</code></summary>
+</details>
+<details>
+<summary>  2.  Mentions <code>Bug</code> but is new <code>🧪 Other</code></summary>
+</details>
+"""
+    items = parse_summary(body)["items"]
+    assert [i["kind"] for i in items] == ["bug", "unknown"]
+    # the title keeps its inline code, and only the trailing kind tag is dropped
+    assert [i["title"] for i in items] == ["Crash on Rule violation parsing", "Mentions Bug but is new"]

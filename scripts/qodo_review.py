@@ -28,9 +28,11 @@ _COUNT = re.compile(r"Bugs \((\d+)\)")
 # Qodo's group counts and each finding's own tag, e.g. <code>📘 Rule violations (1)</code> and
 # <code>📘 Rule violation</code>: fixed markup on the summary lines, never quoted text (W1).
 _GROUP_COUNT = re.compile(r"<code>[^<]*?(?:Bugs|Rule violations|Requirement gaps) \((\d+)\)\s*</code>")
-_KIND = re.compile(r"<code>[^<]*?(Bug|Rule violation|Requirement gap)\s*</code>")
+# The kind is the <code> tag that ends a finding's summary line; inline code in the title is not it.
+_TRAILING_TAG = re.compile(r"\s*<code>([^<]*)</code>\s*$")
+_KIND = re.compile(r"(?:^|\s)(Bug|Rule violation|Requirement gap)\s*$")
 KINDS = {"Bug": "bug", "Rule violation": "rule-violation", "Requirement gap": "requirement-gap"}
-_ITEM = re.compile(r"<summary>\s*\d+\.\s+(.*?)\s*(?:<code>|</summary>)", re.S)
+_ITEM = re.compile(r"<summary>\s*\d+\.\s+(.*?)\s*</summary>", re.S)
 _PROMPT = re.compile(r"Agent prompt</summary>.*?```[^\n]*\n(.*?)\n[> ]*```", re.S)
 # The heading of Qodo's resolved section: match the exact markup, not the phrase, because a finding's
 # own text can say "Resolved findings".
@@ -80,10 +82,12 @@ def parse_summary(body: str) -> dict:
         segment = open_part[match.start():end]
         prompt = _PROMPT.search(segment)
         above = [sev for pos, sev in badges if pos < match.start()]
-        summary_line = segment[: segment.find("</summary>")] if "</summary>" in segment else ""
-        kind = _KIND.search(summary_line)
+        line = match.group(1)
+        tag = _TRAILING_TAG.search(line)
+        kind = _KIND.search(tag.group(1)) if tag else None
+        title = line[: tag.start()] if tag else line
         items.append({
-            "title": html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip(),
+            "title": html.unescape(re.sub(r"<[^>]+>", "", title)).strip(),
             "severity": above[-1] if above else "unknown",
             "kind": KINDS[kind.group(1)] if kind else "unknown",
             "prompt": _unquote(prompt.group(1)) if prompt else "",
