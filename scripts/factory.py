@@ -88,6 +88,16 @@ def should_block(previous: dict | None, head: str, digest: str) -> bool:
 
 AUTO_MERGE_LABEL = "auto-merge-ok"   # only the repo owner's adding it counts
 MAX_ROUNDS = 3                       # gate rounds with work left before the agent stops for help
+# The factory's own code. A PR that changes it never merges on its own: the merge job runs
+# master's copy of this code, and changing that copy is the owner's decision.
+FACTORY_PATHS = [".github/**", ".claude/**", "scripts/**", "AGENTS.md", "docs/factory.md"]
+GH_FILES_CAP = 100  # gh pr view lists at most this many files; at the cap the list may be cut short
+
+
+def protected_changes(changed: list[str]) -> list[str]:
+    return [c for c in changed if any(review_triage.matches(c, g) for g in FACTORY_PATHS)]
+
+
 _ROUND = re.compile(r"^<!-- factory-round head=([0-9a-f]{40}) -->", re.M)
 
 
@@ -104,7 +114,7 @@ def serious(f: dict) -> bool:
 
 
 def merge_decision(gate_result: dict, findings: list[dict], approved: bool, rounds: int,
-                   max_rounds: int = MAX_ROUNDS) -> dict:
+                   max_rounds: int = MAX_ROUNDS, changed: list[str] = ()) -> dict:
     """merge, continue (the agent keeps going or waits for Qodo), user (only the user can finish
     it), or stuck (the retry limit was reached with work left)."""
     status = gate_result["status"]
@@ -121,6 +131,10 @@ def merge_decision(gate_result: dict, findings: list[dict], approved: bool, roun
         if gate_result.get("needs_user", not reasons):
             reasons.append("a needs-user check in the ticket analysis")
         return {"decision": "user", "reasons": reasons}
+    touched = protected_changes(list(changed))
+    if touched:
+        return {"decision": "user", "reasons": ["the PR changes the factory's own code, so the owner reviews it: "
+                                                + ", ".join(touched)]}
     if not approved:
         return {"decision": "user", "reasons": [f"the owner has not labelled this ticket {AUTO_MERGE_LABEL}"]}
     cleared = [f for f in findings if serious(f)]
@@ -351,10 +365,17 @@ def cmd_merge(args) -> int:
     info = pr_info(args.pr)
     head, n = info["headRefOid"], str(info["number"])
     review = current_review(info)
-    result = gate(head, load_analysis(head), review, latest_verdicts(read_ledger(), info["number"]))
+    # In CI the verify job hands over the analysis; this job never runs the PR's code.
+    analysis = json.loads(Path(args.analysis).read_text()) if args.analysis else load_analysis(head)
+    entries = ([json.loads(l) for l in Path(args.ledger).read_text().splitlines() if l.strip()]
+               if getattr(args, "ledger", None) else read_ledger())
+    result = gate(head, analysis, review, latest_verdicts(entries, info["number"]))
     rounds = record_round(info) if result["status"] == "work" else count_rounds(pr_comments(info["number"]))
     approved = bool(info["ticket"]) and ticket_approved(info["ticket"])
-    d = merge_decision(result, review["findings"], approved, rounds)
+    changed = list(info["changed"])
+    if len(changed) >= GH_FILES_CAP:  # the list may be cut short: assume factory code is in the rest
+        changed.append(".github/(file list may be incomplete)")
+    d = merge_decision(result, review["findings"], approved, rounds, changed=changed)
     if args.final and d["decision"] == "continue":
         # The run is over, so nothing will continue it: hand it to the user rather than leave it hanging.
         d = {"decision": "stuck", "reasons": ["the run ended before the gate finished: "
@@ -420,6 +441,8 @@ def main(argv: list[str] | None = None) -> int:
     mg = sub.add_parser("merge")
     mg.add_argument("--pr")
     mg.add_argument("--final", action="store_true", help="the agent's run is over: unfinished means stuck")
+    mg.add_argument("--analysis", help="the ticket analysis JSON handed over by the verify job")
+    mg.add_argument("--ledger", help="the PR's review ledger, read as data (the merge job runs master's code)")
     nx = sub.add_parser("next")
     nx.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)

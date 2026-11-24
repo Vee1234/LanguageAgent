@@ -1,7 +1,10 @@
 # Factory, step 2: a ticket labelled ready-for-agent is built by Claude Code (ticket-resolver),
-# reviewed by Qodo and fixed until the gate passes or the retry limit is hit. Then
-# scripts/factory.py merge decides: merge only if the owner labelled the ticket auto-merge-ok and
-# no serious finding was cleared by the agent's own verdict; otherwise needs-approval or agent-stuck.
+# reviewed by Qodo and fixed until the gate has no agent work left or the retry limit is hit.
+#
+# Trust: the owner's token (FACTORY_TOKEN) is only ever in jobs that run on a fresh machine with
+# a fresh checkout of master: never in a job where the agent, or the PR's code, has run. The
+# merge job compares the PR with that trusted copy (which files it changed, from GitHub's API)
+# and hands any change to the factory's own code to the owner.
 name: factory-run
 
 on:
@@ -12,9 +15,24 @@ concurrency:
   group: factory        # one agent at a time, so two runs can never take the same ticket
   cancel-in-progress: false
 
+env:
+  TICKET: ${{ github.event.issue.number }}
+
 jobs:
-  build:
+  start:
     if: github.event.label.name == 'ready-for-agent'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Move the ticket to In progress
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+        run: python3 scripts/approvals.py set "$TICKET" --status "In progress"
+
+  build:
+    needs: start
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
@@ -22,8 +40,8 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    env:
-      TICKET: ${{ github.event.issue.number }}
+    outputs:
+      pr: ${{ steps.pr.outputs.pr }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -35,11 +53,6 @@ jobs:
         run: |
           pip install python-dotenv pytest
           npm --prefix app ci
-
-      - name: Move the ticket to In progress
-        env:
-          GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}
-        run: python3 scripts/approvals.py set "$TICKET" --status "In progress"
 
       - name: Build the ticket
         uses: anthropics/claude-code-action@v1
@@ -53,23 +66,84 @@ jobs:
             docs/factory.md: build it test-first on a ticket-${{ env.TICKET }}-<slug> branch, open the PR,
             run the ticket analysis, wait for Qodo's review in the foreground
             (python3 scripts/qodo_review.py --wait-minutes 20 --min-severity low), record verdicts and
-            fix confirmed findings until `python3 scripts/factory.py gate` passes. Stop for help when
-            the gate reports the retry limit or a needs-user check. Never merge the PR and never
-            add or remove the auto-merge-ok label.
+            fix confirmed findings until `python3 scripts/factory.py gate` has no work left for you.
+            Serious findings are the owner's: don't fix or dismiss them. Stop for help when the gate
+            reports the retry limit or a needs-user check. Never merge the PR and never add or
+            remove the auto-merge-ok label.
           claude_args: >-
             --max-turns 300
             --disallowedTools "Bash(gh pr merge:*)"
 
-      - name: Merge, hand to the user, or mark stuck
+      - name: Find the PR
+        id: pr
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}   # so the merge starts factory-next
+          GH_TOKEN: ${{ github.token }}
         run: |
           pr=$(gh pr list --state open --json number,headRefName \
                  -q ".[] | select(.headRefName | startswith(\"ticket-${TICKET}-\")) | .number" | head -1)
-          if [ -z "$pr" ]; then
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
+  verify:
+    # Runs the PR's code (its tests and build) on a fresh machine with no secrets, and hands the
+    # ticket analysis to the merge job as a file.
+    needs: build
+    if: always() && needs.build.outputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ needs.build.outputs.pr }}/head
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: npm, cache-dependency-path: app/package-lock.json }
+      - name: Ticket analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pip install python-dotenv pytest
+          npm --prefix app ci
+          python3 scripts/ticket_analysis.py --pr "${{ needs.build.outputs.pr }}" || true
+          cp .git/factory/analysis-*.json analysis.json
+      - uses: actions/upload-artifact@v4
+        with: { name: analysis, path: analysis.json }
+
+  merge:
+    # The trusted copy: a fresh checkout of master, on a fresh machine. Merge, hand to the owner,
+    # or mark stuck.
+    needs: [start, build, verify]
+    if: always() && needs.start.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: The PR's verdicts, as data
+        if: needs.build.outputs.pr != ''
+        run: |
+          git fetch -q origin "refs/pull/${{ needs.build.outputs.pr }}/head"
+          git show FETCH_HEAD:docs/review-ledger.jsonl > pr-ledger.jsonl 2>/dev/null || : > pr-ledger.jsonl
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/download-artifact@v4
+        if: needs.verify.result == 'success'
+        with: { name: analysis }
+      - name: Decide
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}   # so the merge starts factory-next
+          PR: ${{ needs.build.outputs.pr }}
+        run: |
+          if [ -z "$PR" ]; then
             gh issue edit "$TICKET" --remove-label ready-for-agent --add-label agent-stuck
             gh issue comment "$TICKET" --body "Factory: the agent finished without opening a PR. Marked agent-stuck."
             exit 1
           fi
-          python3 scripts/factory.py merge --pr "$pr" --final
+          python3 scripts/factory.py merge --pr "$PR" --final --ledger pr-ledger.jsonl \
+            $( [ -f analysis.json ] && echo --analysis analysis.json )

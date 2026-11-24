@@ -201,7 +201,7 @@ def run_merge(monkeypatch, approved, findings=()):
     monkeypatch.setattr(factory, "ticket_approved", lambda t: approved)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
     monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append(t) if s == approvals.NEEDS_APPROVAL else None)
-    code = factory.cmd_merge(argparse.Namespace(pr="71", final=True))
+    code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None))
     return code, calls, moved
 
 
@@ -258,3 +258,61 @@ def test_the_gate_moves_the_ticket_to_in_review_while_the_qodo_cycle_runs(monkey
     monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append((t, s)))
     factory.cmd_gate(argparse.Namespace(pr="71", threshold=2, hook=False))
     assert moved == [(4, "In Review")]
+
+
+# --- the trusted merge job: factory code changes go to the owner ---------------
+
+from scripts.factory import FACTORY_PATHS, protected_changes  # noqa: E402
+
+
+def test_protected_changes_are_the_factorys_own_code():
+    changed = ["app/src/Card.tsx", "scripts/factory.py", ".github/workflows/factory-run.yml",
+               ".claude/hooks/after-push.sh", "AGENTS.md", "tests/test_x.py"]
+    assert protected_changes(changed) == ["scripts/factory.py", ".github/workflows/factory-run.yml",
+                                          ".claude/hooks/after-push.sh", "AGENTS.md"]
+    assert {".github/**", ".claude/**", "scripts/**", "AGENTS.md"} <= set(FACTORY_PATHS)
+
+
+def test_a_pr_that_changes_factory_code_never_auto_merges():
+    d = merge_decision(PASS, [], approved=True, rounds=1, changed=["app/src/a.ts", "scripts/factory.py"])
+    assert d["decision"] == "user" and "scripts/factory.py" in d["reasons"][0]
+    assert merge_decision(PASS, [], approved=True, rounds=1, changed=["app/src/a.ts"])["decision"] == "merge"
+
+
+def test_merge_uses_the_analysis_file_handed_over_by_the_verify_job(monkeypatch, tmp_path):
+    import argparse, json as _json
+    from scripts import approvals, factory
+    calls = []
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": ["app/src/a.ts"]}
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review())
+    monkeypatch.setattr(factory, "load_analysis", lambda h: None)  # nothing in the local state
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])
+    monkeypatch.setattr(factory, "pr_comments", lambda n: [])
+    monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
+    monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
+    handed = tmp_path / "analysis.json"
+    handed.write_text(_json.dumps(analysis()))
+    assert factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=str(handed))) == 0
+    assert any(c[:2] == ("pr", "merge") for c in calls)
+
+
+def test_merge_reads_verdicts_from_the_ledger_file_handed_over_from_the_pr(monkeypatch, tmp_path):
+    # The merge job runs master's code, but the agent's verdicts are in the PR's copy of the ledger.
+    import argparse, json as _json
+    from scripts import approvals, factory
+    calls = []
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": ["app/src/a.ts"]}
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review(findings=[f("x")]))
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])  # master's ledger: nothing for this PR
+    monkeypatch.setattr(factory, "pr_comments", lambda n: [])
+    monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
+    monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
+    (tmp_path / "a.json").write_text(_json.dumps(analysis()))
+    (tmp_path / "ledger.jsonl").write_text(_json.dumps({"pr": 71, "fingerprint": "x", "verdict": "not-a-bug"}) + "\n")
+    code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=str(tmp_path / "a.json"),
+                                                ledger=str(tmp_path / "ledger.jsonl")))
+    assert code == 0 and any(c[:2] == ("pr", "merge") for c in calls)

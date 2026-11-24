@@ -109,6 +109,12 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   `<!-- factory-round head=SHA -->` PR comment. After **3** rounds the gate stops blocking and
   `factory.py merge` labels the PR and ticket `agent-stuck`. A run that ends before the gate
   finishes (Qodo never reviewed, no PR) is also `agent-stuck`.
+- **A trusted copy decides the merge.** `factory-run` has four jobs, each on a fresh machine:
+  `start` and `merge` check out `master` and are the only jobs with your token; `build` runs the
+  agent; `verify` runs the PR's tests and build with no secrets and hands the ticket analysis
+  over as a file. `merge` reads the PR's changed files from GitHub and its ledger as data, and
+  never runs the PR's code. A PR that changes the factory's own code (`.github/`, `.claude/`,
+  `scripts/`, `AGENTS.md`, `docs/factory.md`) never merges on its own.
 - **Who decides the merge.** You do, per ticket, before the work starts: label the ticket
   `auto-merge-ok`. Only the repo owner adding it counts; a bot or the agent adding it doesn't,
   and removing it withdraws approval. The agent runs with the job's own token, so it can't
