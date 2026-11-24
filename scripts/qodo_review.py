@@ -109,13 +109,24 @@ def is_fresh(body: str, head_sha: str) -> bool:
     return analysed_commit(body) == head_sha
 
 
+def pages(text: str) -> list:
+    """Every item from `gh api --paginate`, which prints one JSON array per page, back to back.
+    Anything that isn't an array (an error object, say) is an error, never a silent short list."""
+    out, dec, i = [], json.JSONDecoder(), 0
+    while (i := len(text) - len(text[i:].lstrip())) < len(text):
+        page, i = dec.raw_decode(text, i)
+        if not isinstance(page, list):
+            raise ValueError(f"gh returned {type(page).__name__}, not a page of results")
+        out.extend(page)
+    return out
+
+
 def _run(*cmd: str) -> str:
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
 
 
 def _latest_review(repo: str, pr: int) -> dict | None:
-    raw = _run("gh", "api", "--paginate", f"repos/{repo}/issues/{pr}/comments")
-    comments = json.loads(raw.replace("][", ",")) if raw else []
+    comments = pages(_run("gh", "api", "--paginate", f"repos/{repo}/issues/{pr}/comments?per_page=100"))
     reviews = [
         c for c in comments
         if "qodo" in c["user"]["login"].lower() and MARKER in (c.get("body") or "")

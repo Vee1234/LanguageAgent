@@ -399,3 +399,32 @@ def test_a_failed_board_move_is_said_in_the_handover_and_fails_the_step(monkeypa
     assert calls.index(("board", 4, approvals.NEEDS_APPROVAL)) < next(i for i, c in enumerate(calls) if c[:2] == ("pr", "edit"))
     comment = next(c for c in calls if c[:2] == ("pr", "comment"))[-1]
     assert "couldn't move" in comment and "board timed out" in comment
+
+
+# --- gh --paginate prints one JSON array per page ------------------------------
+
+from scripts.factory import pages  # noqa: E402
+
+
+def test_pages_joins_every_page_gh_prints():
+    assert pages('[{"a": 1}, {"a": 2}]\n[{"a": 3}]\n') == [{"a": 1}, {"a": 2}, {"a": 3}]
+    assert pages('[1]') == [1]
+    assert pages("") == []
+
+
+def test_pages_rejects_output_that_is_not_json_arrays():
+    with pytest.raises(ValueError):
+        pages('[1]\n{"message": "Not Found"}')
+
+
+def test_comments_and_approvals_read_past_the_first_page(monkeypatch):
+    from scripts import factory
+    monkeypatch.setattr(factory, "repo_name", lambda: "o/r")
+    page1 = [{"body": f"c{i}"} for i in range(30)]
+    page2 = [{"body": "last"}]
+    monkeypatch.setattr(factory, "_gh", lambda *a: f"{__import__('json').dumps(page1)}\n{__import__('json').dumps(page2)}\n")
+    assert factory.pr_comments(1)[-1] == "last" and len(factory.pr_comments(1)) == 31
+
+    label = {"event": "labeled", "label": {"name": "auto-merge-ok"}, "actor": {"login": "o"}}
+    monkeypatch.setattr(factory, "_gh", lambda *a: f"[{{\"event\": \"commented\"}}]\n[{__import__('json').dumps(label)}]\n")
+    assert factory.ticket_approved(5) is True

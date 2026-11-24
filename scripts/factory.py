@@ -223,9 +223,12 @@ def repo_name() -> str:
     return _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
 
 
+pages = qodo_review.pages  # gh --paginate output, every page
+
+
 def pr_comments(number: int) -> list[str]:
-    return json.loads(_gh("api", f"repos/{repo_name()}/issues/{number}/comments", "--paginate",
-                          "--jq", "[.[].body]") or "[]")
+    return [c["body"] for c in pages(_gh("api", f"repos/{repo_name()}/issues/{number}/comments?per_page=100",
+                                         "--paginate"))]
 
 
 def record_round(info: dict) -> int:
@@ -240,7 +243,7 @@ def record_round(info: dict) -> int:
 
 def ticket_approved(ticket: int) -> bool:
     repo = repo_name()
-    events = json.loads(_gh("api", f"repos/{repo}/issues/{ticket}/events", "--paginate", "--jq", "[.[]]") or "[]")
+    events = pages(_gh("api", f"repos/{repo}/issues/{ticket}/events?per_page=100", "--paginate"))
     return approved_by_owner(events, repo.split("/")[0])
 
 

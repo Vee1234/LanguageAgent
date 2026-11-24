@@ -236,3 +236,13 @@ def test_zero_bugs_does_not_hide_a_rule_violation():
     review = parse_summary(body)
     assert review["count"] == 1
     assert [(i["title"], i["kind"]) for i in review["items"]] == [("Card hides a missing register", "rule-violation")]
+
+
+def test_the_latest_review_is_found_past_the_first_page_and_brackets_in_bodies_survive(monkeypatch):
+    import json
+    from scripts import qodo_review
+    from scripts.qodo_review import MARKER
+    page1 = [{"user": {"login": "someone"}, "body": "see grid[0][1]", "updated_at": "2026-01-01"}]
+    page2 = [{"user": {"login": "qodo-code-review[bot]"}, "body": f"{MARKER} uses a[0][1]", "updated_at": "2026-01-02"}]
+    monkeypatch.setattr(qodo_review, "_run", lambda *a: json.dumps(page1) + json.dumps(page2))
+    assert qodo_review._latest_review("o/r", 1)["body"] == f"{MARKER} uses a[0][1]"
