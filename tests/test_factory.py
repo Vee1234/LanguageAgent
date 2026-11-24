@@ -128,6 +128,7 @@ def test_a_ticket_the_owner_did_not_approve_waits_for_the_user():
     sf(severity="unknown", kind="rule-violation"),
     sf(severity="medium", kind="bug"),
     sf(severity="medium", kind="unknown"),
+    sf(severity="low", kind="unknown"),  # an unreadable kind comes to the user at any severity
     sf(severity="high", category="unplaced"),
 ])
 def test_a_serious_finding_the_agent_cleared_itself_needs_the_user(finding):

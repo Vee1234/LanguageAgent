@@ -129,7 +129,8 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
 
 **Serious findings come back to you.** A finding is serious when it is in scope (or names no
 files) and **high or critical**, or **medium and a 🐞 Bug** (not working as intended, security
-included); an unreadable severity counts as serious. The agent doesn't fix or dismiss these. It
+included). An unreadable severity or kind counts as serious, at any severity: it means Qodo's
+format changed and the parser needs updating. The agent doesn't fix or dismiss these. It
 resolves every other finding first, and then the gate's status is `user` with the serious ones
 listed for you.
 

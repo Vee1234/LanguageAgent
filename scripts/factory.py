@@ -101,16 +101,20 @@ def protected_changes(changed: list[str]) -> list[str]:
 _ROUND = re.compile(r"^<!-- factory-round head=([0-9a-f]{40}) -->", re.M)
 
 
+KNOWN_KINDS = set(qodo_review.KINDS.values())  # what the parser can read
+
+
 def serious(f: dict) -> bool:
     """A finding only a fix or the user may clear: high or worse, or a medium bug (something not
-    working as intended, security included). Unknown severity or kind counts as serious. Findings
+    working as intended, security included). An unreadable severity or kind counts as serious, at any
+    severity. Findings
     outside the diff or only on workflow files are not this PR's to merge on."""
     if f.get("category") not in {"in-scope", "unplaced"}:
         return False
     sev, kind = f.get("severity"), f.get("kind", "unknown")
-    if sev not in review_triage.SEVERITY_BASE or sev in {"high", "critical"}:
-        return True
-    return sev == "medium" and kind in {"bug", "unknown"}
+    if sev not in review_triage.SEVERITY_BASE or kind not in KNOWN_KINDS or sev in {"high", "critical"}:
+        return True  # unreadable means Qodo's format changed: the user hears about it
+    return sev == "medium" and kind == "bug"
 
 
 def merge_decision(gate_result: dict, findings: list[dict], approved: bool, rounds: int,
