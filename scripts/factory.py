@@ -393,6 +393,16 @@ def cmd_merge(args) -> int:
         # --admin: master's ruleset needs an approving review, which the owner can't give their own PR.
         # This trusted job has just checked the owner's auto-merge-ok approval itself.
         _gh("pr", "merge", n, "--squash", "--admin", "--delete-branch", "--match-head-commit", head)
+        # Finish the ticket here rather than trust "Closes #N": an open ready-for-agent ticket
+        # would stop the queue. Closing an already-closed issue is a no-op for gh.
+        t = str(info["ticket"])
+        try:
+            _gh("issue", "edit", t, "--remove-label", READY_LABEL)
+            _gh("issue", "close", t, "--reason", "completed", "--comment", f"Merged in PR #{n}.")
+        except subprocess.CalledProcessError as e:
+            print(f"PR #{n} merged, but ticket #{t} wasn't finished ({(e.stderr or '').strip() or e}). "
+                  f"Run: gh issue edit {t} --remove-label {READY_LABEL} && gh issue close {t} --reason completed")
+            return 2
         return 0
     board_error = None
     if d["decision"] == "user" and info["ticket"]:

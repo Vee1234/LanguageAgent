@@ -257,6 +257,34 @@ def test_an_approved_ticket_merges_and_stays_out_of_needs_approval(monkeypatch):
     assert ("pr", "merge", "71", "--squash", "--admin", "--delete-branch", "--match-head-commit", HEAD) in calls
 
 
+def test_a_merge_finishes_the_ticket_even_when_the_pr_did_not_close_it(monkeypatch):
+    # No "Closes #4" in the PR: the ticket would stay open and ready-for-agent, and stop the queue.
+    from scripts.factory import READY_LABEL
+    code, calls, _ = run_merge(monkeypatch, approved=True)
+    merge = next(i for i, c in enumerate(calls) if c[:2] == ("pr", "merge"))
+    after = calls[merge + 1:]
+    assert ("issue", "edit", "4", "--remove-label", READY_LABEL) in after
+    assert ("issue", "close", "4", "--reason", "completed", "--comment", "Merged in PR #71.") in after
+    assert code == 0
+
+
+def test_a_merge_whose_ticket_cleanup_fails_says_so_and_exits_2(monkeypatch, capsys):
+    import subprocess
+    from scripts import factory
+    real = []
+
+    def gh(*a):
+        real.append(a)
+        if a[:2] == ("issue", "close"):
+            raise subprocess.CalledProcessError(1, "gh", stderr="boom")
+        return ""
+    code, _, _ = run_merge(monkeypatch, approved=True)  # sets the patches
+    monkeypatch.setattr(factory, "_gh", gh)
+    import argparse
+    code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None))
+    assert code == 2 and "merged, but" in capsys.readouterr().out
+
+
 
 # --- serious findings come back to the user, after the lower ones -------------
 
