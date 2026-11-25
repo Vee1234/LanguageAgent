@@ -229,18 +229,24 @@ def test_next_moves_a_held_ticket_to_needs_approval_and_explains_once(monkeypatc
     assert ("issue", "edit", "38", "--add-label", "ready-for-agent") in calls
 
 
-def run_merge(monkeypatch, approved, findings=(), next_=lambda a: 0):
+def run_merge(monkeypatch, approved, findings=(), next_=lambda a: 0, body="Closes #4", edit_fails=False):
     import argparse
     from scripts import approvals, factory
     calls, moved = [], []
-    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": []}
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": [], "body": body}
     monkeypatch.setattr(factory, "pr_info", lambda pr: info)
     monkeypatch.setattr(factory, "current_review", lambda i: review(findings=findings))
     monkeypatch.setattr(factory, "load_analysis", lambda h: analysis())
     monkeypatch.setattr(factory, "read_ledger", lambda: [])
     monkeypatch.setattr(factory, "pr_comments", lambda n: [])
     monkeypatch.setattr(factory, "ticket_approved", lambda t: approved)
-    monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    def gh(*a):
+        calls.append(a)
+        if edit_fails and a[:2] == ("pr", "edit") and "--body" in a:
+            import subprocess
+            raise subprocess.CalledProcessError(1, "gh", stderr="boom")
+        return ""
+    monkeypatch.setattr(factory, "_gh", gh)
     monkeypatch.setattr(factory, "cmd_next", next_)  # the merge job starts the next ticket; not under test here
     monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append(t) if s == approvals.NEEDS_APPROVAL else None)
     code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None))
@@ -413,7 +419,7 @@ def test_a_failed_board_move_is_said_in_the_handover_and_fails_the_step(monkeypa
     import argparse
     from scripts import approvals, factory
     calls = []
-    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": []}
+    info = {"number": 71, "ticket": 4, "headRefOid": HEAD, "changed": [], "body": "Closes #4"}
     monkeypatch.setattr(factory, "pr_info", lambda pr: info)
     monkeypatch.setattr(factory, "current_review", lambda i: review())
     monkeypatch.setattr(factory, "load_analysis", lambda h: analysis())
@@ -572,3 +578,35 @@ def test_the_ticket_is_closed_before_its_ready_label_comes_off(monkeypatch):
     _, calls, _ = run_merge(monkeypatch, approved=True)
     assert calls.index(("issue", "close", "4", "--reason", "completed", "--comment", "Merged in PR #71.")) < \
         calls.index(("issue", "edit", "4", "--remove-label", READY_LABEL))
+
+
+# --- every factory PR says "Closes #N", so GitHub links it to its ticket --------
+
+from scripts.factory import closes_ticket  # noqa: E402
+
+
+@pytest.mark.parametrize("body, expected", [
+    ("Closes #4", True), ("Summary\n\nCloses #4\n", True), ("Closes #40", False),
+    ("This Closes #4 inline", False), ("", False), (None, False)])
+def test_closes_ticket_wants_its_own_closes_line(body, expected):
+    assert closes_ticket(body, 4) is expected
+
+
+def test_a_pr_that_does_not_close_its_ticket_is_work_for_the_agent():
+    r = gate(HEAD, analysis(), review(), {}, links_ticket=False)
+    assert r["status"] == "work" and actions(r) == ["link-ticket"]
+    assert gate(HEAD, analysis(), review(), {})["status"] == "pass"  # linked by default
+
+
+def test_the_merge_job_adds_the_closes_line_before_it_decides(monkeypatch):
+    code, calls, _ = run_merge(monkeypatch, approved=True, body="Summary only")
+    edit = next(i for i, c in enumerate(calls) if c[:2] == ("pr", "edit"))
+    assert calls[edit] == ("pr", "edit", "71", "--body", "Summary only\n\nCloses #4")
+    assert edit < next(i for i, c in enumerate(calls) if c[:2] == ("pr", "merge")) and code == 0
+
+
+def test_a_linked_pr_is_left_alone_and_a_failed_link_never_merges(monkeypatch):
+    _, calls, _ = run_merge(monkeypatch, approved=True)
+    assert not any(c[:2] == ("pr", "edit") for c in calls)
+    code, calls, _ = run_merge(monkeypatch, approved=True, body="", edit_fails=True)
+    assert code == 1 and not any(c[:2] == ("pr", "merge") for c in calls)

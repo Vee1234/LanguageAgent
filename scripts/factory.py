@@ -37,7 +37,7 @@ CLEARING = {"not-a-bug", "out-of-scope", "workflow"}
 # --- the gate (pure) -------------------------------------------------------------
 
 def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dict],
-         threshold: int = DEFAULT_THRESHOLD) -> dict:
+         threshold: int = DEFAULT_THRESHOLD, links_ticket: bool = True) -> dict:
     """status: work (the agent has something to do), wait (for Qodo), user (a check only the
     user can do), or pass."""
     actions: list[dict] = []
@@ -52,6 +52,10 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
         if failing or analysis.get("problems"):
             detail = "; ".join([f"{i['status']}: {i['text']}" for i in failing] + analysis.get("problems", []))
             actions.append({"kind": "fix-criteria", "detail": detail})
+
+    if not links_ticket:
+        actions.append({"kind": "link-ticket",
+                        "detail": "add a line `Closes #N` (the ticket) to the PR body, so GitHub links them"})
 
     below, for_user = [], []
     if review["fresh"]:
@@ -194,6 +198,12 @@ def latest_verdicts(entries: list[dict], pr: int) -> dict[str, dict]:
     return out
 
 
+def closes_ticket(body: str | None, ticket: int) -> bool:
+    """The PR body has its own `Closes #N` line, so GitHub links the PR to the ticket: next sees it
+    in review while it is open, and the merge closes it."""
+    return re.search(rf"^Closes #{ticket}\s*$", body or "", re.M) is not None
+
+
 def pr_info(pr: str | None) -> dict:
     info = json.loads(_gh("pr", "view", *([pr] if pr else []), "--json",
                           "number,headRefOid,headRefName,body,files"))
@@ -285,7 +295,7 @@ def cmd_gate(args) -> int:
     info = pr_info(args.pr)
     head = info["headRefOid"]
     result = gate(head, load_analysis(head), current_review(info), latest_verdicts(read_ledger(), info["number"]),
-                  args.threshold)
+                  args.threshold, links_ticket=not info["ticket"] or closes_ticket(info.get("body"), info["ticket"]))
     report = render(info, result) + "\n\n" + NEXT[result["status"]]
     if info["ticket"] and result["status"] in {"work", "wait"}:
         try:
@@ -381,12 +391,22 @@ def cmd_merge(args) -> int:
     cleared by the agent's own verdict. Otherwise hand it to the user or mark it stuck."""
     info = pr_info(args.pr)
     head, n = info["headRefOid"], str(info["number"])
+    if info["ticket"] and not closes_ticket(info.get("body"), info["ticket"]):
+        # Backstop for the gate's link-ticket check. If this edit fails, the gate below still sees
+        # the line missing, so the PR can't merge.
+        body = f"{(info.get('body') or '').rstrip()}\n\nCloses #{info['ticket']}".lstrip()
+        try:
+            _gh("pr", "edit", n, "--body", body)
+            info["body"] = body
+        except subprocess.CalledProcessError as e:
+            print(f"Couldn't add `Closes #{info['ticket']}` to PR #{n}: {(e.stderr or '').strip() or e}")
     review = current_review(info)
     # In CI the verify job hands over the analysis; this job never runs the PR's code.
     analysis = json.loads(Path(args.analysis).read_text()) if args.analysis else load_analysis(head)
     entries = ([json.loads(l) for l in Path(args.ledger).read_text().splitlines() if l.strip()]
                if getattr(args, "ledger", None) else read_ledger())
-    result = gate(head, analysis, review, latest_verdicts(entries, info["number"]))
+    result = gate(head, analysis, review, latest_verdicts(entries, info["number"]),
+                  links_ticket=not info["ticket"] or closes_ticket(info.get("body"), info["ticket"]))
     rounds = (record_round(info) if result["status"] == "work" and result["checked"]
               else count_rounds(pr_comments(info["number"])))
     approved = bool(info["ticket"]) and ticket_approved(info["ticket"])

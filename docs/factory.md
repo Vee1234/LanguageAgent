@@ -108,6 +108,10 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   is removed and it is closed, so it never sees the merged ticket as still busy. `factory-next`
   runs it for your hand-merges (PRs labelled `needs-approval` or `agent-stuck`), nightly as a
   backup, and on demand.
+- **Every PR closes its ticket.** A ticket PR must have its own `Closes #N` line, so GitHub links
+  the two: `next` sees the ticket in review while the PR is open (even in Needs Approval) and the
+  merge closes it. The gate reports `link-ticket` work until the line is there, and the merge job
+  adds it itself if a run ended first (if that edit fails, the PR can't merge).
   A ticket whose PR was **closed without merging** is never restarted on its own: it is held in
   **Needs Approval** with a comment saying why, and the next ticket is picked instead. To rebuild
   it, add `ready-for-agent` yourself.
