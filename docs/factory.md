@@ -104,6 +104,10 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
 - **Next ticket.** `factory.py next` labels backlog_order's next ticket: nothing open blocks it,
   it isn't already in a PR, and within its category it is the most painful to change later. It does
   nothing while any open ticket is `ready-for-agent` or `agent-stuck`, so there is one at a time.
+  After the factory's own merge, the merge job runs it as its last step, once the ticket's label
+  is removed and it is closed, so it never sees the merged ticket as still busy. `factory-next`
+  runs it for your hand-merges (PRs labelled `needs-approval` or `agent-stuck`), nightly as a
+  backup, and on demand.
   A ticket whose PR was **closed without merging** is never restarted on its own: it is held in
   **Needs Approval** with a comment saying why, and the next ticket is picked instead. To rebuild
   it, add `ready-for-agent` yourself.

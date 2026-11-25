@@ -414,7 +414,9 @@ def cmd_merge(args) -> int:
             print(f"PR #{n} merged, but ticket #{t} wasn't finished ({(e.stderr or '').strip() or e}). "
                   f"Run: gh issue edit {t} --remove-label {READY_LABEL} && gh issue close {t} --reason completed")
             return 2
-        return 0
+        # Start the next ticket here, after the cleanup, so it never sees this ticket's ready label
+        # (factory-next only takes the owner's hand-merges).
+        return cmd_next(argparse.Namespace(dry_run=False))
     board_error = None
     if d["decision"] == "user" and info["ticket"]:
         try:  # the board first, so a failure is in the handover comment, never hidden behind the labels

@@ -69,3 +69,14 @@ def test_the_allowlist_never_opens_merging_the_api_the_forum_or_any_command():
     for t in allowed:
         assert not t.startswith(("Bash(gh pr merge", "Bash(gh api", "Bash(gh issue edit", "Bash(gh label")), t
         assert "discussion_post" not in t, t  # forum posts need the owner's approval first
+
+
+NEXT = (Path(__file__).resolve().parent.parent / ".github/workflows/factory-next.yml").read_text()
+
+
+def test_the_merge_job_starts_the_next_ticket_and_factory_next_only_takes_the_owners_hand_merges():
+    # The merge job runs `next` after its cleanup (no race with the ready label). factory-next's
+    # merge trigger is for PRs the owner merged by hand, so the two never both run on one merge.
+    assert "factory.py merge" in jobs(RUN)["merge"]
+    cond = re.search(r"^    if: (.*?)^    runs-on:", NEXT, re.M | re.S).group(1)
+    assert "'needs-approval'" in cond and "'agent-stuck'" in cond and "labels.*.name" in cond

@@ -229,7 +229,7 @@ def test_next_moves_a_held_ticket_to_needs_approval_and_explains_once(monkeypatc
     assert ("issue", "edit", "38", "--add-label", "ready-for-agent") in calls
 
 
-def run_merge(monkeypatch, approved, findings=()):
+def run_merge(monkeypatch, approved, findings=(), next_=lambda a: 0):
     import argparse
     from scripts import approvals, factory
     calls, moved = [], []
@@ -241,6 +241,7 @@ def run_merge(monkeypatch, approved, findings=()):
     monkeypatch.setattr(factory, "pr_comments", lambda n: [])
     monkeypatch.setattr(factory, "ticket_approved", lambda t: approved)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(factory, "cmd_next", next_)  # the merge job starts the next ticket; not under test here
     monkeypatch.setattr(approvals, "set_status", lambda t, s: moved.append(t) if s == approvals.NEEDS_APPROVAL else None)
     code = factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None))
     return code, calls, moved
@@ -360,6 +361,7 @@ def test_merge_uses_the_analysis_file_handed_over_by_the_verify_job(monkeypatch,
     monkeypatch.setattr(factory, "pr_comments", lambda n: [])
     monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(factory, "cmd_next", lambda a: 0)
     monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
     handed = tmp_path / "analysis.json"
     handed.write_text(_json.dumps(analysis()))
@@ -379,6 +381,7 @@ def test_merge_reads_verdicts_from_the_ledger_file_handed_over_from_the_pr(monke
     monkeypatch.setattr(factory, "pr_comments", lambda n: [])
     monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(factory, "cmd_next", lambda a: 0)
     monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
     (tmp_path / "a.json").write_text(_json.dumps(analysis()))
     (tmp_path / "ledger.jsonl").write_text(_json.dumps({"pr": 71, "fingerprint": "x", "verdict": "not-a-bug"}) + "\n")
@@ -516,3 +519,31 @@ def test_the_third_push_is_analysed_and_reviewed_before_the_retry_limit_can_stop
 def test_the_third_checked_head_with_work_left_reaches_the_retry_limit(monkeypatch, tmp_path):
     msg, posted = run_hook(monkeypatch, tmp_path, prior_rounds=2, analysed=True, reviewed=True)
     assert len(posted) == 1 and "retry limit" in msg["systemMessage"]
+
+
+# --- the merge job starts the next ticket itself, after the cleanup ------------
+
+def test_a_merge_labels_the_next_ticket_only_after_the_ticket_is_finished(monkeypatch):
+    from scripts import factory
+    code, calls, _ = run_merge(monkeypatch, approved=True, next_=lambda a: factory._gh("NEXT") or 0)
+    assert code == 0 and calls.count(("NEXT",)) == 1
+    closed = next(i for i, c in enumerate(calls) if c[:2] == ("issue", "close"))
+    assert calls.index(("NEXT",)) > closed  # next ran only once the ticket was closed
+
+
+def test_no_next_ticket_when_the_cleanup_failed_or_the_ticket_needs_the_owner(monkeypatch):
+    import argparse
+    import subprocess
+    from scripts import factory
+    ran = []
+    run_merge(monkeypatch, approved=False, next_=lambda a: ran.append(1) or 0)
+    assert ran == []
+
+    def gh(*a):
+        if a[:2] == ("issue", "close"):
+            raise subprocess.CalledProcessError(1, "gh", stderr="boom")
+        return ""
+    monkeypatch.setattr(factory, "_gh", gh)
+    monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
+    assert factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None)) == 2
+    assert ran == []
