@@ -405,14 +405,16 @@ def cmd_merge(args) -> int:
         # This trusted job has just checked the owner's auto-merge-ok approval itself.
         _gh("pr", "merge", n, "--squash", "--admin", "--delete-branch", "--match-head-commit", head)
         # Finish the ticket here rather than trust "Closes #N": an open ready-for-agent ticket
-        # would stop the queue. Closing an already-closed issue is a no-op for gh.
+        # would stop the queue. Close first, then unlabel: if the close fails, the label keeps the
+        # queue held, never an open unlabelled ticket that next would build again. Closing an
+        # already-closed issue is a no-op for gh.
         t = str(info["ticket"])
         try:
-            _gh("issue", "edit", t, "--remove-label", READY_LABEL)
             _gh("issue", "close", t, "--reason", "completed", "--comment", f"Merged in PR #{n}.")
+            _gh("issue", "edit", t, "--remove-label", READY_LABEL)
         except subprocess.CalledProcessError as e:
             print(f"PR #{n} merged, but ticket #{t} wasn't finished ({(e.stderr or '').strip() or e}). "
-                  f"Run: gh issue edit {t} --remove-label {READY_LABEL} && gh issue close {t} --reason completed")
+                  f"Run: gh issue close {t} --reason completed && gh issue edit {t} --remove-label {READY_LABEL}")
             return 2
         # Start the next ticket here, after the cleanup, so it never sees this ticket's ready label
         # (factory-next only takes the owner's hand-merges).

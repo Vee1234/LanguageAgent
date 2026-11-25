@@ -148,8 +148,8 @@ it) **→ Done**.
 
 `factory.py merge` merges (squash, only at the head it checked) when the gate passed (the
 analysis passed, Qodo reviewed the head, every finding at or above the threshold is cleared and
-none is serious) **and** you labelled the ticket `auto-merge-ok`. It then removes `ready-for-agent`
-and closes the ticket itself, so a PR without "Closes #N" can't stall the queue. Otherwise the PR is labelled
+none is serious) **and** you labelled the ticket `auto-merge-ok`. It then closes the ticket and only then
+removes `ready-for-agent` (if the close fails, the label keeps the queue held), so a PR without "Closes #N" can't stall the queue. Otherwise the PR is labelled
 `needs-approval` with the reasons, the ticket moves to **Needs Approval**, and you merge it or not.
 After every push, the `after-push.sh` hook lists what is in that column (the `approvals` skill;
 `python3 scripts/approvals.py` on demand).

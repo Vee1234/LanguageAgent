@@ -547,3 +547,28 @@ def test_no_next_ticket_when_the_cleanup_failed_or_the_ticket_needs_the_owner(mo
     monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
     assert factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None)) == 2
     assert ran == []
+
+
+def test_a_failed_close_leaves_the_ready_label_so_the_merged_ticket_is_never_rebuilt(monkeypatch):
+    import argparse
+    import subprocess
+    from scripts import factory
+    from scripts.factory import READY_LABEL
+    run_merge(monkeypatch, approved=True)  # sets up the patches
+    calls = []
+
+    def gh(*a):
+        calls.append(a)
+        if a[:2] == ("issue", "close"):
+            raise subprocess.CalledProcessError(1, "gh", stderr="boom")
+        return ""
+    monkeypatch.setattr(factory, "_gh", gh)
+    assert factory.cmd_merge(argparse.Namespace(pr="71", final=True, analysis=None)) == 2
+    assert ("issue", "edit", "4", "--remove-label", READY_LABEL) not in calls  # still busy: the queue holds
+
+
+def test_the_ticket_is_closed_before_its_ready_label_comes_off(monkeypatch):
+    from scripts.factory import READY_LABEL
+    _, calls, _ = run_merge(monkeypatch, approved=True)
+    assert calls.index(("issue", "close", "4", "--reason", "completed", "--comment", "Merged in PR #71.")) < \
+        calls.index(("issue", "edit", "4", "--remove-label", READY_LABEL))
