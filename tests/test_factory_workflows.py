@@ -15,7 +15,7 @@ def test_the_run_is_split_into_build_verify_and_merge_jobs():
     j = jobs(RUN)
     assert {"build", "verify", "merge"} <= j.keys()
     needs = re.search(r"needs: \[([^\]]*)\]", j["merge"]).group(1).replace(" ", "").split(",")
-    assert {"start", "build", "verify"} <= set(needs)
+    assert {"start", "build", "identify", "verify"} <= set(needs)
 
 
 def test_the_owners_token_is_only_in_jobs_on_a_fresh_checkout_of_master_without_the_agent():
@@ -94,7 +94,7 @@ def steps(job: str) -> list[str]:
 def test_verify_judges_with_masters_code_and_runs_the_pr_only_inside_a_container():
     v = jobs(RUN)["verify"]
     assert "ref: ${{ github.event.repository.default_branch }}" in v and "path: trusted" in v
-    assert "ref: ${{ needs.build.outputs.head }}" in v and "path: pr" in v  # the exact commit built
+    assert "ref: ${{ needs.identify.outputs.head }}" in v and "path: pr" in v  # the exact commit confirmed
     assert v.count("persist-credentials: false") == 2  # no credential left in either checkout
     assert "docker build" in v and "-f trusted/.github/factory/sandbox.Dockerfile" in v
     judge = next(s for s in steps(v) if "ticket_analysis.py" in s)
@@ -106,9 +106,19 @@ def test_verify_judges_with_masters_code_and_runs_the_pr_only_inside_a_container
     assert [s for s in steps(v) if "GH_TOKEN" in s] == [judge]
 
 
-def test_the_build_job_reports_the_head_commit_it_pushed():
-    b = jobs(RUN)["build"]
-    assert "head: ${{ steps.pr.outputs.head }}" in b and 'echo "head=' in b
+def test_the_build_job_only_claims_its_branch_and_commit_and_a_fresh_job_checks_them():
+    j = jobs(RUN)
+    b, i = j["build"], j["identify"]
+    assert "branch: ${{ steps.claim.outputs.branch }}" in b and "head: ${{ steps.claim.outputs.head }}" in b
+    assert not any("gh pr list" in st for st in steps(b) if "run:" in st)  # the agent's machine decides nothing
+    assert "ref: ${{ github.event.repository.default_branch }}" in i and "needs: build" in i
+    assert "python3 scripts/factory.py find-pr" in i
+    # the claim arrives as environment variables, never pasted into the script
+    assert "BRANCH: ${{ needs.build.outputs.branch }}" in i and '"$BRANCH"' in i
+    assert "${{ needs.build.outputs" not in i.split("run:", 1)[1]
+    for name in ["verify", "merge"]:
+        assert "needs.build.outputs.pr" not in j[name] and "needs.build.outputs.head" not in j[name], name
+        assert "needs.identify.outputs.pr" in j[name], name
 
 
 DOCKERFILE = Path(__file__).resolve().parent.parent / ".github/factory/sandbox.Dockerfile"

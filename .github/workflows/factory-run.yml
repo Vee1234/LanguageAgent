@@ -44,8 +44,8 @@ jobs:
       pull-requests: write
       issues: read  # read only: the PR is judged against the ticket, so the agent must not edit it
     outputs:
-      pr: ${{ steps.pr.outputs.pr }}
-      head: ${{ steps.pr.outputs.head }}
+      branch: ${{ steps.claim.outputs.branch }}
+      head: ${{ steps.claim.outputs.head }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -83,23 +83,44 @@ jobs:
             --allowedTools "Read,Edit,Write,Glob,Grep,Skill,Bash(python3 -m pytest:*),Bash(npm --prefix app:*),Bash(python3 scripts/factory.py:*),Bash(python3 scripts/qodo_review.py:*),Bash(python3 scripts/ticket_analysis.py:*),Bash(python3 scripts/backlog_order.py:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git switch:*),Bash(git branch:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git rev-parse:*),Bash(git push),Bash(git push -u origin ticket-:*),Bash(git push origin ticket-:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*)"
             --disallowedTools "Bash(gh pr merge:*) Bash(gh api:*) Bash(git push origin master:*) Bash(git push origin HEAD:master:*) Bash(git push --force:*)"
 
-      - name: Find the PR
-        id: pr
+      - name: Report the branch and commit (a claim, checked by the identify job)
+        id: claim
         if: always()
+        run: |
+          echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  identify:
+    # A fresh machine with master's code checks the agent's claim against GitHub: the ticket's
+    # only open PR, on that ticket-N-* branch, at that commit. The agent's machine decides nothing.
+    needs: build
+    if: always() && needs.build.outputs.branch != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.find.outputs.pr }}
+      head: ${{ steps.find.outputs.head }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Confirm the PR
+        id: find
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          pr=$(gh pr list --state open --json number,headRefName \
-                 -q ".[] | select(.headRefName | startswith(\"ticket-${TICKET}-\")) | .number" | head -1)
-          echo "pr=$pr" >> "$GITHUB_OUTPUT"
-          [ -n "$pr" ] && echo "head=$(gh pr view "$pr" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT" || true
+          BRANCH: ${{ needs.build.outputs.branch }}
+          HEAD_SHA: ${{ needs.build.outputs.head }}
+        run: python3 scripts/factory.py find-pr "$TICKET" --branch "$BRANCH" --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   verify:
     # The trusted judge: master's ticket_analysis.py decides, and the PR's code (install, tests,
     # build) runs only inside a throwaway container built from the exact commit the build job
     # pushed. No step that runs PR code holds a token, and neither checkout keeps a credential.
-    needs: build
-    if: always() && needs.build.outputs.pr != ''
+    needs: identify
+    if: always() && needs.identify.outputs.pr != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -113,7 +134,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.build.outputs.head }}
+          ref: ${{ needs.identify.outputs.head }}
           path: pr
           persist-credentials: false
       - name: Build the sandbox from the PR
@@ -123,15 +144,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/ticket_analysis.py --pr "${{ needs.build.outputs.pr }}" --sandbox factory-pr \
-            --expect-head "${{ needs.build.outputs.head }}" --out ../analysis.json || [ -f ../analysis.json ]
+          python3 scripts/ticket_analysis.py --pr "${{ needs.identify.outputs.pr }}" --sandbox factory-pr \
+            --expect-head "${{ needs.identify.outputs.head }}" --out ../analysis.json || [ -f ../analysis.json ]
       - uses: actions/upload-artifact@v4
         with: { name: analysis, path: analysis.json }
 
   merge:
     # The trusted copy: a fresh checkout of master, on a fresh machine. Merge, hand to the owner,
     # or mark stuck.
-    needs: [start, build, verify]
+    needs: [start, build, identify, verify]
     if: always() && needs.start.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -140,9 +161,9 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
       - name: The PR's verdicts, as data
-        if: needs.build.outputs.pr != ''
+        if: needs.identify.outputs.pr != ''
         run: |
-          git fetch -q origin "refs/pull/${{ needs.build.outputs.pr }}/head"
+          git fetch -q origin "refs/pull/${{ needs.identify.outputs.pr }}/head"
           git show FETCH_HEAD:docs/review-ledger.jsonl > pr-ledger.jsonl 2>/dev/null || : > pr-ledger.jsonl
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
@@ -152,7 +173,7 @@ jobs:
       - name: Decide
         env:
           GH_TOKEN: ${{ secrets.FACTORY_TOKEN }}   # so the merge starts factory-next
-          PR: ${{ needs.build.outputs.pr }}
+          PR: ${{ needs.identify.outputs.pr }}
         run: |
           if [ -z "$PR" ]; then
             gh issue edit "$TICKET" --remove-label ready-for-agent --add-label agent-stuck

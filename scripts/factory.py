@@ -473,6 +473,25 @@ READY_LABEL = "ready-for-agent"
 HOLD_LABELS = {READY_LABEL, "agent-stuck"}  # one ticket at a time, and a stuck one waits for the user
 
 
+def pick_pr(ticket: int, branch: str, head: str, open_prs: list[dict]) -> tuple[int | None, str]:
+    """The PR this run built: the agent's claimed branch and commit, checked against GitHub's open
+    PRs. It must be a ticket-N-* branch, the ticket's only open PR, and at the claimed commit.
+    Anything else is no PR (the ticket goes to agent-stuck), with the reason."""
+    prefix = f"ticket-{ticket}-"
+    if not (branch or "").startswith(prefix):
+        return None, f"the run ended on {branch!r}, not a {prefix}* branch"
+    mine = [p for p in open_prs if p["headRefName"].startswith(prefix)]
+    if len(mine) > 1:
+        return None, f"{len(mine)} open PRs for ticket #{ticket}: " + ", ".join(f"#{p['number']}" for p in mine)
+    match = [p for p in mine if p["headRefName"] == branch]
+    if not match:
+        return None, f"no open PR for {branch}"
+    if match[0]["headRefOid"] != head:
+        return None, (f"PR #{match[0]['number']}'s head is {match[0]['headRefOid'][:7]}, "
+                      f"not the {(head or '?')[:7]} the run pushed")
+    return match[0]["number"], ""
+
+
 def owner_only(ticket: dict, owner: str) -> bool:
     """Trusted only if the owner wrote the ticket and nobody else has edited it: the agent builds
     from its text. An unknown author (a deleted account) is untrusted."""
@@ -546,6 +565,17 @@ def cmd_next(args) -> int:
     return 2 if failed else 0
 
 
+def cmd_find_pr(args) -> int:
+    """Print `pr=` and `head=` lines for $GITHUB_OUTPUT: the confirmed PR, or empty with a warning."""
+    prs = json.loads(_gh("pr", "list", "--state", "open", "--limit", "500",
+                         "--json", "number,headRefName,headRefOid"))
+    pr, reason = pick_pr(args.ticket, args.branch, args.head, prs)
+    if pr is None:
+        print(f"::warning::No PR for ticket #{args.ticket}: {reason}", file=sys.stderr)
+    print(f"pr={pr or ''}\nhead={args.head if pr else ''}")
+    return 0
+
+
 def cmd_check_ticket(args) -> int:
     """Refuse to build a ticket that isn't the owner's own (run before the agent starts)."""
     if trusted_ticket(args.ticket):
@@ -582,9 +612,13 @@ def main(argv: list[str] | None = None) -> int:
     nx.add_argument("--dry-run", action="store_true")
     ck = sub.add_parser("check-ticket")
     ck.add_argument("ticket", type=int)
+    fp = sub.add_parser("find-pr", help="confirm the PR a run built (CI, trusted job)")
+    fp.add_argument("ticket", type=int)
+    fp.add_argument("--branch", required=True)
+    fp.add_argument("--head", required=True)
     args = p.parse_args(argv)
-    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback,
-            "merge": cmd_merge, "next": cmd_next, "check-ticket": cmd_check_ticket}[args.cmd](args)
+    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback, "merge": cmd_merge,
+            "next": cmd_next, "check-ticket": cmd_check_ticket, "find-pr": cmd_find_pr}[args.cmd](args)
 
 
 if __name__ == "__main__":

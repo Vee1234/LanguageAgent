@@ -628,3 +628,31 @@ def test_the_merge_job_rechecks_the_ticket_and_an_unreadable_history_is_untruste
     for check in [lambda t: False, lambda t: (_ for _ in ()).throw(RuntimeError("graphql down"))]:
         code, calls, moved = run_merge(monkeypatch, approved=True, trusted=check)
         assert code == 1 and moved == [4] and not any(c[:2] == ("pr", "merge") for c in calls)
+
+
+# --- which PR this run built: the agent's claim, checked against GitHub ---------
+
+from scripts.factory import pick_pr  # noqa: E402
+
+A, B = "a" * 40, "b" * 40
+
+
+def pr_(n, branch, head):
+    return {"number": n, "headRefName": branch, "headRefOid": head}
+
+
+def test_the_pr_is_the_runs_own_branch_at_the_commit_it_pushed():
+    assert pick_pr(4, "ticket-4-x", A, [pr_(9, "ticket-4-x", A), pr_(8, "ticket-5-y", B)]) == (9, "")
+
+
+@pytest.mark.parametrize("branch, head, prs, why", [
+    ("master", A, [pr_(9, "ticket-4-x", A)], "not a ticket-4-* branch"),
+    ("ticket-4-x", A, [pr_(9, "ticket-4-x", A), pr_(7, "ticket-4-old", B)], "2 open PRs"),
+    ("ticket-4-x", A, [pr_(9, "ticket-4-x", B)], "head"),
+    ("ticket-4-x", A, [pr_(7, "ticket-4-old", A)], "no open PR for ticket-4-x"),
+    ("ticket-4-x", A, [], "no open PR for ticket-4-x"),
+    ("ticket-40-x", A, [pr_(9, "ticket-40-x", A)], "not a ticket-4-* branch"),
+])
+def test_anything_else_is_no_pr_with_the_reason(branch, head, prs, why):
+    pr, reason = pick_pr(4, branch, head, prs)
+    assert pr is None and why in reason

@@ -124,9 +124,11 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   so nobody else's comment can use up the rounds). After **3** rounds the gate stops blocking and
   `factory.py merge` labels the PR and ticket `agent-stuck`. A run that ends before the gate
   finishes (Qodo never reviewed, no PR) is also `agent-stuck`.
-- **A trusted copy decides the merge.** `factory-run` has four jobs, each on a fresh machine:
+- **A trusted copy decides the merge.** `factory-run` has five jobs, each on a fresh machine:
   `start` and `merge` check out `master` and are the only jobs with your token; `build` runs the
-  agent; `verify` is the judge: **master's** `ticket_analysis.py` decides, at the exact commit the
+  agent and only *claims* the branch and commit it pushed; `identify` (master's code) checks that
+  claim against GitHub: the ticket's only open PR, on that `ticket-N-*` branch, at that commit,
+  or no PR at all (`agent-stuck`); `verify` is the judge: **master's** `ticket_analysis.py` decides, at the exact commit the
   build job pushed (it refuses if the PR's head has moved), and the PR's code (its install, tests
   and build) runs only inside a throwaway Docker container built from that commit
   (`.github/factory/sandbox.Dockerfile`, always master's copy): tests run with no network and no
