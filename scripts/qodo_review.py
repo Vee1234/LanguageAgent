@@ -69,7 +69,10 @@ def parse_summary(body: str) -> dict:
     if not m:
         return {"count": None, "items": []}
     # Every group counts: a review with no bugs can still have a rule violation.
-    groups = sum(int(n) for n in _GROUP_COUNT.findall(body)) or int(m.group(1))
+    # Only the header's badges count: before the first finding, so a badge quoted in a finding's
+    # prompt or listed under resolved findings can't change the count.
+    header = body[: body.find("<details>")] if "<details>" in body else body
+    groups = sum(int(n) for n in _GROUP_COUNT.findall(header)) or int((_COUNT.search(header) or m).group(1))
 
     # Findings Qodo has marked resolved are listed after the open ones; only open ones are work.
     resolved = _RESOLVED_HEADING.search(body)

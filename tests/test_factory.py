@@ -12,8 +12,8 @@ def review(fresh=True, findings=()):
     return {"fresh": fresh, "findings": list(findings)}
 
 
-def f(fp, relevance=3, severity="medium"):
-    return {"fingerprint": fp, "title": f"finding {fp}", "relevance": relevance, "category": "in-scope",
+def f(fp, relevance=3, severity="medium", category="in-scope"):
+    return {"fingerprint": fp, "title": f"finding {fp}", "relevance": relevance, "category": category,
             "severity": severity}
 
 
@@ -44,7 +44,7 @@ def test_an_untriaged_relevant_finding_must_be_triaged():
 
 
 def test_a_finding_below_the_threshold_is_listed_but_does_not_block():
-    r = gate(HEAD, analysis(), review(findings=[f("x", 1)]), {})
+    r = gate(HEAD, analysis(), review(findings=[f("x", 1, category="outside-diff")]), {})
     assert r["status"] == "pass"
     assert [b["fingerprint"] for b in r["below_threshold"]] == ["x"]
 
@@ -80,7 +80,7 @@ def test_a_phone_check_left_for_the_user_ends_the_loop_with_the_user():
 
 
 def test_the_threshold_can_be_raised():
-    r = gate(HEAD, analysis(), review(findings=[f("x", 3)]), {}, threshold=4)
+    r = gate(HEAD, analysis(), review(findings=[f("x", 3, category="outside-diff")]), {}, threshold=4)
     assert r["status"] == "pass"
 
 
@@ -200,3 +200,16 @@ def test_a_checked_head_with_work_is_recorded_as_a_round_and_the_agent_keeps_goi
     assert msg["decision"] == "block" and len(posted) == 1
     msg, posted = run_gate(monkeypatch, tmp_path, prior=1, findings=[f("m")], checked=False)
     assert posted == []  # Qodo hasn't reviewed this head: not a round yet
+
+
+def test_an_in_scope_low_finding_is_work_in_the_first_rounds_whatever_its_relevance():
+    low = f("l", relevance=1, severity="low")
+    assert actions(gate(HEAD, analysis(), review(findings=[low]), {}, rounds=0)) == ["triage"]
+    after = gate(HEAD, analysis(), review(findings=[low]), {}, rounds=3)
+    assert after["status"] == "handover" and [x["fingerprint"] for x in after["left"]] == ["l"]
+
+
+def test_findings_outside_the_diff_or_on_workflow_files_stay_below_the_threshold():
+    fs = [f("o", relevance=1, category="outside-diff"), f("w", relevance=0, category="workflow")]
+    r = gate(HEAD, analysis(), review(findings=fs), {}, rounds=0)
+    assert r["status"] == "pass" and len(r["below_threshold"]) == 2

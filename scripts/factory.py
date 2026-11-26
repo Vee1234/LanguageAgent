@@ -61,7 +61,10 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
     if review["fresh"]:
         for f in review["findings"]:
             v = verdicts.get(f["fingerprint"])
-            if f["relevance"] < threshold:
+            in_scope = f.get("category") in {"in-scope", "unplaced"}
+            # The threshold filters out findings outside the diff and on workflow files. An
+            # in-scope finding is work whatever its relevance: "every finding" for MAX_ROUNDS.
+            if f["relevance"] < threshold and not in_scope:
                 below.append(f)
             elif v is not None and v["verdict"] in CLEARING:
                 continue

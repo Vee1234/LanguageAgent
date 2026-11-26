@@ -279,3 +279,22 @@ def test_the_kind_is_the_tag_that_ends_the_summary_line_not_one_inside_the_title
     assert [i["kind"] for i in items] == ["bug", "unknown"]
     # the title keeps its inline code, and only the trailing kind tag is dropped
     assert [i["title"] for i in items] == ["Crash on Rule violation parsing", "Mentions Bug but is new"]
+
+
+def test_only_the_header_badges_count_not_ones_quoted_in_a_finding_or_resolved():
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (1)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Counts quoted badges <code>🐞 Bug</code></summary>
+> <details><summary>Agent prompt</summary>
+>```
+>Qodo writes <code>🐞 Bugs (7)</code> and <code>📘 Rule violations (4)</code> in its header.
+>```
+></details>
+</details>
+<details><summary><strong>Resolved findings</strong></summary>
+<code>🐞 Bugs (9)</code>
+</details>
+"""
+    assert parse_summary(body)["count"] == 1
