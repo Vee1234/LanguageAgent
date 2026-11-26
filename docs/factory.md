@@ -133,7 +133,9 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
 - **Only your own tickets.** The repo's interaction limit is collaborators-only (renew it every
   6 months: `gh api -X PUT repos/{owner}/{repo}/interaction-limits -f limit=collaborators_only -f expiry=six_months`).
   As a backstop, `next` and the `start` job build a ticket only if you wrote it and nobody else
-  edited it, and the push report carries numbers and links, never titles.
+  edited it, and the push report carries numbers and links, never titles. The merge job checks
+  again just before merging (the PR is judged against the ticket, which could have changed), and
+  any other editor sends it to Needs Approval. The agent's token can read tickets but not edit them.
 - **Who decides the merge.** You do, per ticket, before the work starts: label the ticket
   `auto-merge-ok`. Only the repo owner adding it counts; a bot or the agent adding it doesn't,
   and removing it withdraws approval. The agent runs with the job's own token, so it can't

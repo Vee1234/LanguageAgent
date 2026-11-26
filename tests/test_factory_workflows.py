@@ -80,3 +80,8 @@ def test_the_merge_job_starts_the_next_ticket_and_factory_next_only_takes_the_ow
     assert "factory.py merge" in jobs(RUN)["merge"]
     cond = re.search(r"^    if: (.*?)^    runs-on:", NEXT, re.M | re.S).group(1)
     assert "'needs-approval'" in cond and "'agent-stuck'" in cond and "labels.*.name" in cond
+
+
+def test_the_agent_job_cannot_edit_tickets():
+    # the ticket is what the PR is judged against: the agent's token must not be able to rewrite it
+    assert "issues: write" not in jobs(RUN)["build"]

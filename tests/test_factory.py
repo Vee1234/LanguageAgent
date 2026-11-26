@@ -108,8 +108,8 @@ def sf(fp="x", severity="medium", kind="bug", category="in-scope"):
             "category": category, "relevance": 3}
 
 
-def decide(gate_result=PASS, findings=(), approved=True, rounds=1):
-    return merge_decision(gate_result, list(findings), approved=approved, rounds=rounds)
+def decide(gate_result=PASS, findings=(), approved=True, rounds=1, **kw):
+    return merge_decision(gate_result, list(findings), approved=approved, rounds=rounds, **kw)
 
 
 def test_a_passed_approved_ticket_with_no_serious_findings_merges():
@@ -229,7 +229,8 @@ def test_next_moves_a_held_ticket_to_needs_approval_and_explains_once(monkeypatc
     assert ("issue", "edit", "38", "--add-label", "ready-for-agent") in calls
 
 
-def run_merge(monkeypatch, approved, findings=(), next_=lambda a: 0, body="Closes #4", edit_fails=False):
+def run_merge(monkeypatch, approved, findings=(), next_=lambda a: 0, body="Closes #4", edit_fails=False,
+              trusted=lambda t: True):
     import argparse
     from scripts import approvals, factory
     calls, moved = [], []
@@ -240,6 +241,8 @@ def run_merge(monkeypatch, approved, findings=(), next_=lambda a: 0, body="Close
     monkeypatch.setattr(factory, "read_ledger", lambda: [])
     monkeypatch.setattr(factory, "pr_comments", lambda n: [])
     monkeypatch.setattr(factory, "ticket_approved", lambda t: approved)
+    monkeypatch.setattr(factory, "trusted_ticket", trusted)
+
     def gh(*a):
         calls.append(a)
         if edit_fails and a[:2] == ("pr", "edit") and "--body" in a:
@@ -368,6 +371,7 @@ def test_merge_uses_the_analysis_file_handed_over_by_the_verify_job(monkeypatch,
     monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
     monkeypatch.setattr(factory, "cmd_next", lambda a: 0)
+    monkeypatch.setattr(factory, "trusted_ticket", lambda t: True)
     monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
     handed = tmp_path / "analysis.json"
     handed.write_text(_json.dumps(analysis()))
@@ -388,6 +392,7 @@ def test_merge_reads_verdicts_from_the_ledger_file_handed_over_from_the_pr(monke
     monkeypatch.setattr(factory, "ticket_approved", lambda t: True)
     monkeypatch.setattr(factory, "_gh", lambda *a: calls.append(a) or "")
     monkeypatch.setattr(factory, "cmd_next", lambda a: 0)
+    monkeypatch.setattr(factory, "trusted_ticket", lambda t: True)
     monkeypatch.setattr(approvals, "set_status", lambda t, s: None)
     (tmp_path / "a.json").write_text(_json.dumps(analysis()))
     (tmp_path / "ledger.jsonl").write_text(_json.dumps({"pr": 71, "fingerprint": "x", "verdict": "not-a-bug"}) + "\n")
@@ -610,3 +615,16 @@ def test_a_linked_pr_is_left_alone_and_a_failed_link_never_merges(monkeypatch):
     assert not any(c[:2] == ("pr", "edit") for c in calls)
     code, calls, _ = run_merge(monkeypatch, approved=True, body="", edit_fails=True)
     assert code == 1 and not any(c[:2] == ("pr", "merge") for c in calls)
+
+
+# --- the ticket is re-checked at merge: only the owner may have written it -----
+
+def test_a_ticket_someone_else_edited_never_merges_on_its_own():
+    d = decide(trusted=False)
+    assert d["decision"] == "user" and "edited by someone other than you" in d["reasons"][0]
+
+
+def test_the_merge_job_rechecks_the_ticket_and_an_unreadable_history_is_untrusted(monkeypatch):
+    for check in [lambda t: False, lambda t: (_ for _ in ()).throw(RuntimeError("graphql down"))]:
+        code, calls, moved = run_merge(monkeypatch, approved=True, trusted=check)
+        assert code == 1 and moved == [4] and not any(c[:2] == ("pr", "merge") for c in calls)

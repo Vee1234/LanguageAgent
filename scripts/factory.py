@@ -125,7 +125,7 @@ def serious(f: dict) -> bool:
 
 
 def merge_decision(gate_result: dict, findings: list[dict], approved: bool, rounds: int,
-                   max_rounds: int = MAX_ROUNDS, changed: list[str] = ()) -> dict:
+                   max_rounds: int = MAX_ROUNDS, changed: list[str] = (), trusted: bool = True) -> dict:
     """merge, continue (the agent keeps going or waits for Qodo), user (only the user can finish
     it), or stuck (the retry limit was reached with work left)."""
     status = gate_result["status"]
@@ -146,6 +146,10 @@ def merge_decision(gate_result: dict, findings: list[dict], approved: bool, roun
     if touched:
         return {"decision": "user", "reasons": ["the PR changes the factory's own code, so the owner reviews it: "
                                                 + ", ".join(touched)]}
+    if not trusted:
+        return {"decision": "user", "reasons": ["the ticket was edited by someone other than you (or its edit "
+                                                "history couldn't be read), so the PR is judged against text "
+                                                "you may not have written"]}
     if not approved:
         return {"decision": "user", "reasons": [f"the owner has not labelled this ticket {AUTO_MERGE_LABEL}"]}
     cleared = [f for f in findings if serious(f)]
@@ -410,10 +414,15 @@ def cmd_merge(args) -> int:
     rounds = (record_round(info) if result["status"] == "work" and result["checked"]
               else count_rounds(pr_comments(info["number"])))
     approved = bool(info["ticket"]) and ticket_approved(info["ticket"])
+    try:  # re-checked here: the ticket could have been edited since the start job checked it
+        trusted = bool(info["ticket"]) and trusted_ticket(info["ticket"])
+    except Exception as e:
+        print(f"Couldn't read ticket #{info['ticket']}'s edit history: {e}")
+        trusted = False
     changed = list(info["changed"])
     if len(changed) >= GH_FILES_CAP:  # the list may be cut short: assume factory code is in the rest
         changed.append(".github/(file list may be incomplete)")
-    d = merge_decision(result, review["findings"], approved, rounds, changed=changed)
+    d = merge_decision(result, review["findings"], approved, rounds, changed=changed, trusted=trusted)
     if args.final and d["decision"] == "continue":
         # The run is over, so nothing will continue it: hand it to the user rather than leave it hanging.
         d = {"decision": "stuck", "reasons": ["the run ended before the gate finished: "

@@ -42,7 +42,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      issues: write
+      issues: read  # read only: the PR is judged against the ticket, so the agent must not edit it
     outputs:
       pr: ${{ steps.pr.outputs.pr }}
     steps:
