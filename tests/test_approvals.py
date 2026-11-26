@@ -85,27 +85,57 @@ def test_the_board_is_found_even_beyond_the_owners_first_30_projects(monkeypatch
 from scripts.approvals import report  # noqa: E402
 
 
+def opr(n, ticket, labelled=True, by_branch=False):
+    """An open PR as gh lists it, linked to its ticket by "Closes #N" or by branch name."""
+    return {"number": n, "body": "" if by_branch else f"Summary\n\nCloses #{ticket}",
+            "headRefName": f"ticket-{ticket}-x" if by_branch else "some-branch",
+            "labels": [{"name": "needs-approval"}] if labelled else []}
+
+
+def line(out, n):
+    return next(l for l in out.splitlines() if l.startswith(f"- #{n} "))
+
+
 def test_the_report_lists_the_board_and_the_label_and_flags_what_only_the_label_has():
-    out = report(lambda: [4, 9], lambda: {9: [71], 12: [80]}, REPO)
+    out = report(lambda: [4, 9], lambda: [opr(71, 9), opr(80, 12)], REPO)
     assert "#4" in out and "#9" in out and "#12" in out
-    line12 = next(l for l in out.splitlines() if "#12" in l)
-    assert "on the label but not the board" in line12
-    assert "not the board" not in next(l for l in out.splitlines() if "#9 " in l)
+    assert "on the label but not the board" in line(out, 12)
+    assert "not the board" not in line(out, 9)
+    assert "no open PR" in line(out, 4)  # both sources were read: a verified absence
 
 
 def test_a_board_that_cant_be_read_is_said_plainly_and_the_label_list_still_shows():
     def broken():
         raise TimeoutError("timed out after 30 seconds")
-    out = report(broken, lambda: {12: [80]}, REPO)
+    out = report(broken, lambda: [opr(80, 12)], REPO)
     assert out.startswith("Couldn't read the board") and "timed out" in out and "#12" in out
     assert "No tickets are waiting" not in out
+    assert "not the board" not in out  # the board wasn't read, so nothing is claimed about it
 
 
 def test_nothing_waiting_is_said_only_when_both_sources_were_read_and_are_empty():
-    assert report(lambda: [], lambda: {}, REPO) == "No tickets are waiting in Needs Approval."
+    assert report(lambda: [], lambda: [], REPO) == "No tickets are waiting in Needs Approval."
     def broken():
         raise RuntimeError("gh failed")
     assert "No tickets are waiting" not in report(lambda: [], broken, REPO)
+
+
+def test_when_the_prs_cant_be_read_a_board_ticket_says_unknown_not_no_open_pr():
+    def broken():
+        raise RuntimeError("gh failed")
+    out = report(lambda: [4], broken, REPO)
+    assert "PR: unknown" in line(out, 4) and "no open PR" not in out
+
+
+def test_a_board_ticket_shows_its_open_pr_even_before_the_pr_is_labelled():
+    # the merge job moves the board first and labels the PR second
+    out = report(lambda: [4, 5], lambda: [opr(71, 4, labelled=False), opr(72, 5, labelled=False, by_branch=True)], REPO)
+    assert "PR #71" in line(out, 4) and "PR #72" in line(out, 5)
+
+
+def test_an_unlabelled_pr_for_a_ticket_not_on_the_board_is_not_listed():
+    assert report(lambda: [], lambda: [opr(71, 4, labelled=False)], REPO) == \
+        "No tickets are waiting in Needs Approval."
 
 
 def test_a_long_report_shows_the_first_50_and_says_how_many_more_in_code_not_by_cutting():

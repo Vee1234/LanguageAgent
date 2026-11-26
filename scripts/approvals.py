@@ -49,8 +49,12 @@ def render(tickets: list[dict], repo: str, limit: int | None = REPORT_LIMIT) -> 
     lines = [f"{len(tickets)} ticket(s) waiting in Needs Approval:"]
     shown = tickets if limit is None else tickets[:limit]
     for t in shown:
-        prs = ", ".join(f"PR #{int(p)} https://github.com/{repo}/pull/{int(p)}" for p in t.get("prs", [])) or "no open PR"
-        lines.append(f"- #{int(t['number'])} https://github.com/{repo}/issues/{int(t['number'])} ({prs})")
+        if t.get("prs", []) is None:  # the PR list couldn't be read: claim nothing
+            prs = "PR: unknown"
+        else:
+            prs = ", ".join(f"PR #{int(p)} https://github.com/{repo}/pull/{int(p)}" for p in t.get("prs", [])) or "no open PR"
+        tag = "[on the label but not the board] " if t.get("off_board") else ""
+        lines.append(f"- #{int(t['number'])} {tag}https://github.com/{repo}/issues/{int(t['number'])} ({prs})")
     if len(shown) < len(tickets):
         lines.append(f"...and {len(tickets) - len(shown)} more: run `python3 scripts/approvals.py --all`")
     return "\n".join(lines)
@@ -117,42 +121,52 @@ def _items(owner: str, number: str) -> list[dict]:
                                                   "--limit", str(limit), "--format", "json")))
 
 
-def report(read_board, read_labelled, repo: str, limit: int | None = REPORT_LIMIT) -> str:
-    """What is waiting for the owner, from two sources: the board's Needs Approval column and open
-    PRs labelled needs-approval. A source that can't be read is said plainly, and "nothing
-    waiting" is said only when both were read and are empty."""
-    problems, board, labelled = [], [], {}
+def pr_ticket(pr: dict) -> int | None:
+    """The ticket an open PR is for: its `Closes #N` line, else its ticket-N-* branch."""
+    m = re.search(r"^Closes #(\d+)\s*$", pr.get("body") or "", re.M) or re.match(r"^ticket-(\d+)-", pr.get("headRefName") or "")
+    return int(m.group(1)) if m else None
+
+
+def report(read_board, read_prs, repo: str, limit: int | None = REPORT_LIMIT) -> str:
+    """What is waiting for the owner: tickets in the board's Needs Approval column, and tickets
+    whose open PR is labelled needs-approval. Each ticket's PRs come from all open PRs, not the
+    label, so a PR the merge job hasn't labelled yet still shows. A source that can't be read is
+    said plainly, and nothing is claimed from it: "PR: unknown", never "no open PR", and no
+    "not on the board" tag. "Nothing waiting" only when both were read and are empty."""
+    problems, board, prs = [], None, None
     try:
-        board = list(read_board())
+        board = set(read_board())
     except Exception as e:
         problems.append(f"Couldn't read the board: {e}")
     try:
-        labelled = dict(read_labelled())
+        prs = list(read_prs())
     except Exception as e:
-        problems.append(f"Couldn't read the needs-approval PRs: {e}")
-    if not problems and not board and not labelled:
+        problems.append(f"Couldn't read the open PRs: {e}")
+    by_ticket: dict[int, list[int]] = {}
+    labelled: set[int] = set()
+    for p in prs or []:
+        t = pr_ticket(p)
+        if t is None:
+            continue
+        by_ticket.setdefault(t, []).append(p["number"])
+        if "needs-approval" in {l.get("name") for l in p.get("labels") or []}:
+            labelled.add(t)
+    waiting = sorted((board or set()) | labelled)
+    if not problems and not waiting:
         return "No tickets are waiting in Needs Approval."
-    tickets = [{"number": n, "prs": labelled.get(n, [])} for n in sorted(set(board) | set(labelled))]
-    lines = problems + ([render(tickets, repo, limit)] if tickets else ["Nothing found in what could be read."])
-    out = "\n".join(lines)
-    for n in sorted(set(labelled) - set(board)):
-        out = out.replace(f"- #{n} ", f"- #{n} [on the label but not the board] ", 1)
-    return out
+    tickets = [{"number": n, "prs": None if prs is None else sorted(by_ticket.get(n, [])),
+                "off_board": board is not None and n not in board} for n in waiting]
+    return "\n".join(problems + ([render(tickets, repo, limit)] if tickets else ["Nothing found in what could be read."]))
 
 
 def _board_numbers(repo: str, owner: str, number: str) -> list[int]:
     return [t["number"] for t in needs_approval(_items(owner, number), repo)]
 
 
-def _labelled_prs() -> dict[int, list[int]]:
-    prs = json.loads(_gh("pr", "list", "--state", "open", "--label", "needs-approval", "--limit", "500",
-                         "--json", "number,body,headRefName"))
-    out: dict[int, list[int]] = {}
-    for p in prs:
-        m = re.search(r"^Closes #(\d+)\s*$", p["body"] or "", re.M) or re.match(r"^ticket-(\d+)-", p["headRefName"])
-        if m:
-            out.setdefault(int(m.group(1)), []).append(p["number"])
-    return out
+def _open_prs() -> list[dict]:
+    # every open PR (no label filter, which goes through GitHub's search); matched to tickets in report()
+    return json.loads(_gh("pr", "list", "--state", "open", "--limit", "500",
+                          "--json", "number,body,headRefName,labels"))
 
 
 def current_report(limit: int | None = REPORT_LIMIT) -> str:
@@ -160,8 +174,8 @@ def current_report(limit: int | None = REPORT_LIMIT) -> str:
         repo, owner, number = _project()
     except Exception as e:
         repo = _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
-        return report(lambda: (_ for _ in ()).throw(e), _labelled_prs, repo, limit)
-    return report(lambda: _board_numbers(repo, owner, number), _labelled_prs, repo, limit)
+        return report(lambda: (_ for _ in ()).throw(e), _open_prs, repo, limit)
+    return report(lambda: _board_numbers(repo, owner, number), _open_prs, repo, limit)
 
 
 def set_status(ticket: int, status: str) -> bool:
