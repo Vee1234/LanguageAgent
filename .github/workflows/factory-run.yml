@@ -38,6 +38,12 @@ jobs:
           git config user.name "factory-agent"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Build only the owner's own ticket
+        # The agent follows the ticket's text, so it must be text only the owner wrote.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/factory.py check-ticket "$TICKET"
+
       - name: Build the ticket and work through Qodo's review
         uses: anthropics/claude-code-action@v1
         with:

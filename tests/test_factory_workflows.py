@@ -70,3 +70,9 @@ def test_a_failed_or_timed_out_run_marks_the_ticket_stuck_from_a_separate_job():
     assert "needs.build.result == 'failure'" in stuck and "needs.build.result == 'cancelled'" in stuck
     assert "issues: write" in stuck and "--add-label agent-stuck" in stuck and "--remove-label ready-for-agent" in stuck
     assert "claude-code-action" not in stuck and "actions/checkout" not in stuck  # runs no repo code
+
+
+def test_the_ticket_is_checked_to_be_the_owners_own_before_the_agent_starts():
+    build = jobs(RUN)["build"]
+    assert "python3 scripts/factory.py check-ticket" in build
+    assert build.index("check-ticket") < build.index("claude-code-action")

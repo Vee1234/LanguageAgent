@@ -11,6 +11,7 @@ Usage:
     python3 scripts/factory.py verdict --fingerprint FP --verdict not-a-bug --reason missing-context --note "…"
     python3 scripts/factory.py verdict --fingerprint FP --verdict out-of-scope --new-ticket 70
     python3 scripts/factory.py feedback [--pr N]
+    python3 scripts/factory.py check-ticket N    # CI: is ticket N the owner's own?
 """
 from __future__ import annotations
 
@@ -144,6 +145,25 @@ def record_round(info: dict) -> int:
         _gh("pr", "comment", str(info["number"]), "--body", body)
         comments.append(body)
     return count_rounds(comments)
+
+
+def owner_only(ticket: dict, owner: str) -> bool:
+    """Trusted only if the owner wrote the ticket and nobody else has edited it: the agent builds
+    from its text. An unknown author or editor (a deleted account, an unread edit) is untrusted."""
+    return ticket.get("author") == owner and all(e == owner for e in ticket.get("editors", []))
+
+
+def ticket_authorship(n: int) -> dict:
+    owner, name = repo_name().split("/")
+    q = ("query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){"
+         "author{login} userContentEdits(first:100){totalCount nodes{editor{login}}}}}}")
+    issue = json.loads(_gh("api", "graphql", "-f", f"query={q}", "-F", f"o={owner}", "-F", f"r={name}",
+                           "-F", f"n={n}"))["data"]["repository"]["issue"]
+    edits = issue["userContentEdits"]
+    editors = [(e.get("editor") or {}).get("login") for e in edits["nodes"]]
+    if edits["totalCount"] > len(editors):
+        editors.append(None)  # more edits than we read: unknown, so untrusted
+    return {"author": (issue.get("author") or {}).get("login"), "editors": editors}
 
 
 def read_ledger() -> list[dict]:
@@ -305,6 +325,17 @@ def cmd_feedback(args) -> int:
     return 0
 
 
+def cmd_check_ticket(args) -> int:
+    """CI, before the agent starts: 0 if the owner wrote the ticket and nobody else edited it."""
+    owner = repo_name().split("/")[0]
+    if owner_only(ticket_authorship(args.ticket), owner):
+        print(f"Ticket #{args.ticket} is the owner's own: building it.")
+        return 0
+    print(f"Ticket #{args.ticket}: the factory only builds tickets you wrote and nobody else edited, "
+          "because the agent follows the ticket's text. Rewrite it as a new ticket of your own to build it.")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -321,8 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--new-ticket", type=int)
     fb = sub.add_parser("feedback")
     fb.add_argument("--pr")
+    ck = sub.add_parser("check-ticket", help="CI: refuse a ticket the owner didn't write alone")
+    ck.add_argument("ticket", type=int)
     args = p.parse_args(argv)
-    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback}[args.cmd](args)
+    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback,
+            "check-ticket": cmd_check_ticket}[args.cmd](args)
 
 
 if __name__ == "__main__":

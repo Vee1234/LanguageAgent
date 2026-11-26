@@ -1,3 +1,4 @@
+import pytest
 from scripts.factory import gate, should_block
 
 HEAD = "a" * 40
@@ -213,3 +214,31 @@ def test_findings_outside_the_diff_or_on_workflow_files_stay_below_the_threshold
     fs = [f("o", relevance=1, category="outside-diff"), f("w", relevance=0, category="workflow")]
     r = gate(HEAD, analysis(), review(findings=fs), {}, rounds=0)
     assert r["status"] == "pass" and len(r["below_threshold"]) == 2
+
+
+# --- the agent builds only the owner's own tickets ------------------------------
+
+from scripts.factory import owner_only  # noqa: E402
+
+
+@pytest.mark.parametrize("ticket, trusted", [
+    ({"author": "o", "editors": []}, True),
+    ({"author": "o", "editors": ["o", "o"]}, True),
+    ({"author": "x", "editors": []}, False),
+    ({"author": "o", "editors": ["o", "x"]}, False),
+    ({"author": None, "editors": []}, False),   # a deleted account
+    ({"author": "o", "editors": [None]}, False),  # more edits than could be read
+])
+def test_only_a_ticket_the_owner_wrote_and_nobody_else_edited_is_built(ticket, trusted):
+    assert owner_only(ticket, "o") is trusted
+
+
+def test_check_ticket_refuses_someone_elses_ticket(monkeypatch, capsys):
+    import argparse
+    from scripts import factory
+    monkeypatch.setattr(factory, "repo_name", lambda: "o/r")
+    monkeypatch.setattr(factory, "ticket_authorship", lambda n: {"author": "x", "editors": []})
+    assert factory.cmd_check_ticket(argparse.Namespace(ticket=4)) == 1
+    assert "only builds tickets you wrote" in capsys.readouterr().out
+    monkeypatch.setattr(factory, "ticket_authorship", lambda n: {"author": "o", "editors": []})
+    assert factory.cmd_check_ticket(argparse.Namespace(ticket=4)) == 0
