@@ -11,6 +11,7 @@ Usage:
     python3 scripts/factory.py verdict --fingerprint FP --verdict not-a-bug --reason missing-context --note "…"
     python3 scripts/factory.py verdict --fingerprint FP --verdict out-of-scope --new-ticket 70
     python3 scripts/factory.py feedback [--pr N]
+    python3 scripts/factory.py check-ticket N    # CI: is ticket N the owner's own?
 """
 from __future__ import annotations
 
@@ -29,18 +30,25 @@ from scripts.ticket_analysis import PASSING, state_dir  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER = ROOT / "docs" / "review-ledger.jsonl"
 DEFAULT_THRESHOLD = 2
+MAX_ROUNDS = 3  # after this many checked rounds, only high and critical findings are the agent's
+URGENT = {"high", "critical"}  # an unreadable severity counts as one of these
 CLEARING = {"not-a-bug", "out-of-scope", "workflow"}
 
 
 # --- the gate (pure) -------------------------------------------------------------
 
 def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dict],
-         threshold: int = DEFAULT_THRESHOLD) -> dict:
+         threshold: int = DEFAULT_THRESHOLD, rounds: int = 0) -> dict:
     """status: work (the agent has something to do), wait (for Qodo), user (a check only the
-    user can do), or pass."""
+    user can do), handover (after MAX_ROUNDS, only findings below high are left: they go to the
+    owner) or pass.
+
+    For the first MAX_ROUNDS rounds every finding is the agent's. After that only high and critical
+    ones are (an unreadable severity counts as high); the rest are listed in `left`."""
     actions: list[dict] = []
     needs_user = False
-    if analysis is None or analysis.get("head") != head:
+    analysed = analysis is not None and analysis.get("head") == head
+    if not analysed:
         actions.append({"kind": "run-analysis",
                         "detail": f"run the ticket analysis on {head[:7]}: python3 scripts/ticket_analysis.py"})
     else:
@@ -50,12 +58,20 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
             detail = "; ".join([f"{i['status']}: {i['text']}" for i in failing] + analysis.get("problems", []))
             actions.append({"kind": "fix-criteria", "detail": detail})
 
-    below = []
+    below, left = [], []
     if review["fresh"]:
         for f in review["findings"]:
             v = verdicts.get(f["fingerprint"])
-            if f["relevance"] < threshold:
+            in_scope = f.get("category") in {"in-scope", "unplaced"}
+            # The threshold filters out findings outside the diff and on workflow files. An
+            # in-scope finding is work whatever its relevance: "every finding" for MAX_ROUNDS.
+            if f["relevance"] < threshold and not in_scope:
                 below.append(f)
+            elif v is not None and v["verdict"] in CLEARING:
+                continue
+            elif rounds >= MAX_ROUNDS and f.get("severity") in review_triage.SEVERITY_BASE \
+                    and f.get("severity") not in URGENT:
+                left.append(f)  # past the limit: medium and low go to the owner
             elif v is None:
                 actions.append({"kind": "triage", "fingerprint": f["fingerprint"],
                                 "detail": f"give a verdict on '{f['title']}' (relevance {f['relevance']}, {f['category']})"})
@@ -69,9 +85,26 @@ def gate(head: str, analysis: dict | None, review: dict, verdicts: dict[str, dic
         status = "wait"
     elif needs_user:
         status = "user"
+    elif left:
+        status = "handover"
     else:
         status = "pass"
-    return {"status": status, "actions": actions, "below_threshold": below}
+    # checked: analysed and reviewed at this head. Only a checked head with work left is a round.
+    return {"status": status, "actions": actions, "below_threshold": below, "left": left,
+            "checked": analysed and review["fresh"]}
+
+
+_ROUND = re.compile(r"^<!-- factory-round head=([0-9a-f]{40}) -->", re.M)
+FACTORY_BOT = "github-actions[bot]"  # the job token the factory posts its round markers with
+
+
+def round_marker(head: str) -> str:
+    return f"<!-- factory-round head={head} -->"
+
+
+def count_rounds(comments: list[str]) -> int:
+    """Rounds are distinct heads, from markers that start a line of a PR comment."""
+    return len({m for c in comments for m in _ROUND.findall(c)})
 
 
 def should_block(previous: dict | None, head: str, digest: str) -> bool:
@@ -83,6 +116,54 @@ def should_block(previous: dict | None, head: str, digest: str) -> bool:
 
 def _gh(*args: str) -> str:
     return subprocess.run(["gh", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+
+
+def repo_name() -> str:
+    return _gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner").strip()
+
+
+def pr_comments(number: int) -> list[str]:
+    """Bodies of the PR's comments that the factory (its job token) or the owner wrote: round
+    markers count only from these, so nobody else's comment can use up the rounds."""
+    repo = repo_name()
+    trusted = {FACTORY_BOT, repo.split("/")[0]}
+    raw = _gh("api", f"repos/{repo}/issues/{number}/comments?per_page=100", "--paginate")
+    return [c["body"] for c in qodo_review.pages(raw) if (c.get("user") or {}).get("login") in trusted]
+
+
+def earlier_rounds(comments: list[str], head: str) -> int:
+    """Rounds before this head: rerunning the gate on the same commit never counts it twice."""
+    return len({m for c in comments for m in _ROUND.findall(c)} - {head})
+
+
+def record_round(info: dict) -> int:
+    """Mark this head as a round (once per head) and return the number of rounds."""
+    comments = pr_comments(info["number"])
+    marker = round_marker(info["headRefOid"])
+    if not any(c.startswith(marker) for c in comments):
+        body = f"{marker}\nFactory round on {info['headRefOid'][:7]}: Qodo's review still has work."
+        _gh("pr", "comment", str(info["number"]), "--body", body)
+        comments.append(body)
+    return count_rounds(comments)
+
+
+def owner_only(ticket: dict, owner: str) -> bool:
+    """Trusted only if the owner wrote the ticket and nobody else has edited it: the agent builds
+    from its text. An unknown author or editor (a deleted account, an unread edit) is untrusted."""
+    return ticket.get("author") == owner and all(e == owner for e in ticket.get("editors", []))
+
+
+def ticket_authorship(n: int) -> dict:
+    owner, name = repo_name().split("/")
+    q = ("query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){"
+         "author{login} userContentEdits(first:100){totalCount nodes{editor{login}}}}}}")
+    issue = json.loads(_gh("api", "graphql", "-f", f"query={q}", "-F", f"o={owner}", "-F", f"r={name}",
+                           "-F", f"n={n}"))["data"]["repository"]["issue"]
+    edits = issue["userContentEdits"]
+    editors = [(e.get("editor") or {}).get("login") for e in edits["nodes"]]
+    if edits["totalCount"] > len(editors):
+        editors.append(None)  # more edits than we read: unknown, so untrusted
+    return {"author": (issue.get("author") or {}).get("login"), "editors": editors}
 
 
 def read_ledger() -> list[dict]:
@@ -131,6 +212,9 @@ def render(info: dict, result: dict) -> str:
     out = [f"## Factory gate: PR #{info['number']} (ticket #{info['ticket']}) at {info['headRefOid'][:7]}: "
            f"{result['status'].upper()}", ""]
     out += [f"- {a['kind']}: {a['detail']}" for a in result["actions"]] or ["- Nothing left to do on this PR."]
+    if result.get("left"):
+        out += ["", f"Left for the owner (below high, after {MAX_ROUNDS} rounds):"]
+        out += [f"- [{f.get('severity')}] {f['title']} ({f['fingerprint']})" for f in result["left"]]
     if result["below_threshold"]:
         out += ["", "Below the relevance threshold (listed, not blocking):"]
         out += [f"- [{f['relevance']}, {f['category']}] {f['title']} ({f['fingerprint']})" for f in result["below_threshold"]]
@@ -142,6 +226,9 @@ NEXT = {
     "wait": "Qodo hasn't reviewed this commit yet: run `python3 scripts/qodo_review.py --wait-minutes 15 "
             "--min-severity low` in the background and continue when it finishes.",
     "user": "Only the user can finish this: ask them to do the needs-user checks with the exact steps.",
+    "handover": (f"After {MAX_ROUNDS} rounds no high or critical finding is left. Stop: post one PR comment "
+                 "listing the findings below for the owner (title, severity and your view of each), and "
+                 "tell the user. Don't fix them."),
     "pass": "The ticket passed. Do step 7 of ticket-resolver (`python3 scripts/factory.py feedback`) before the next ticket.",
 }
 
@@ -151,8 +238,11 @@ NEXT = {
 def cmd_gate(args) -> int:
     info = pr_info(args.pr)
     head = info["headRefOid"]
+    rounds = earlier_rounds(pr_comments(info["number"]), head)
     result = gate(head, load_analysis(head), current_review(info), latest_verdicts(read_ledger(), info["number"]),
-                  args.threshold)
+                  args.threshold, rounds=rounds)
+    if result["status"] == "work" and result["checked"]:
+        record_round(info)
     report = render(info, result) + "\n\n" + NEXT[result["status"]]
     if not args.hook:
         print(report)
@@ -169,7 +259,8 @@ def cmd_gate(args) -> int:
                                            "check, so the loop stops here. Tell the user what is stuck."}))
     else:
         print(json.dumps({"systemMessage": f"Factory gate: PR #{info['number']} is {result['status']}. "
-                                           + NEXT[result["status"]]}))
+                                           + NEXT[result["status"]]
+                                           + ("\n\n" + report if result["status"] == "handover" else "")}))
     return 0
 
 
@@ -234,6 +325,17 @@ def cmd_feedback(args) -> int:
     return 0
 
 
+def cmd_check_ticket(args) -> int:
+    """CI, before the agent starts: 0 if the owner wrote the ticket and nobody else edited it."""
+    owner = repo_name().split("/")[0]
+    if owner_only(ticket_authorship(args.ticket), owner):
+        print(f"Ticket #{args.ticket} is the owner's own: building it.")
+        return 0
+    print(f"Ticket #{args.ticket}: the factory only builds tickets you wrote and nobody else edited, "
+          "because the agent follows the ticket's text. Rewrite it as a new ticket of your own to build it.")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -250,8 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--new-ticket", type=int)
     fb = sub.add_parser("feedback")
     fb.add_argument("--pr")
+    ck = sub.add_parser("check-ticket", help="CI: refuse a ticket the owner didn't write alone")
+    ck.add_argument("ticket", type=int)
     args = p.parse_args(argv)
-    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback}[args.cmd](args)
+    return {"gate": cmd_gate, "verdict": cmd_verdict, "feedback": cmd_feedback,
+            "check-ticket": cmd_check_ticket}[args.cmd](args)
 
 
 if __name__ == "__main__":

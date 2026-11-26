@@ -25,7 +25,14 @@ from datetime import datetime, timedelta, timezone  # deadline only
 
 MARKER = "Code Review by Qodo"
 _COUNT = re.compile(r"Bugs \((\d+)\)")
-_ITEM = re.compile(r"<summary>\s*\d+\.\s+(.*?)\s*(?:<code>|</summary>)", re.S)
+# Qodo's group counts and each finding's own tag, e.g. <code>📘 Rule violations (1)</code> and
+# <code>📘 Rule violation</code>: fixed markup on the summary lines, never quoted text (W1).
+_GROUP_COUNT = re.compile(r"<code>[^<]*?(?:Bugs|Rule violations|Requirement gaps) \((\d+)\)\s*</code>")
+# The kind is the <code> tag that ends a finding's summary line; inline code in the title is not it.
+_TRAILING_TAG = re.compile(r"\s*<code>([^<]*)</code>\s*$")
+_KIND = re.compile(r"(?:^|\s)(Bug|Rule violation|Requirement gap)\s*$")
+KINDS = {"Bug": "bug", "Rule violation": "rule-violation", "Requirement gap": "requirement-gap"}
+_ITEM = re.compile(r"<summary>\s*\d+\.\s+(.*?)\s*</summary>", re.S)
 _PROMPT = re.compile(r"Agent prompt</summary>.*?```[^\n]*\n(.*?)\n[> ]*```", re.S)
 # The heading of Qodo's resolved section: match the exact markup, not the phrase, because a finding's
 # own text can say "Resolved findings".
@@ -61,7 +68,11 @@ def parse_summary(body: str) -> dict:
     m = _COUNT.search(body)
     if not m:
         return {"count": None, "items": []}
-    count = int(m.group(1))
+    # Every group counts: a review with no bugs can still have a rule violation.
+    # Only the header's badges count: before the first finding, so a badge quoted in a finding's
+    # prompt or listed under resolved findings can't change the count.
+    header = body[: body.find("<details>")] if "<details>" in body else body
+    groups = sum(int(n) for n in _GROUP_COUNT.findall(header)) or int((_COUNT.search(header) or m).group(1))
 
     # Findings Qodo has marked resolved are listed after the open ones; only open ones are work.
     resolved = _RESOLVED_HEADING.search(body)
@@ -74,12 +85,19 @@ def parse_summary(body: str) -> dict:
         segment = open_part[match.start():end]
         prompt = _PROMPT.search(segment)
         above = [sev for pos, sev in badges if pos < match.start()]
+        line = match.group(1)
+        tag = _TRAILING_TAG.search(line)
+        kind = _KIND.search(tag.group(1)) if tag else None
+        title = line[: tag.start()] if tag else line
         items.append({
-            "title": html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip(),
+            "title": html.unescape(re.sub(r"<[^>]+>", "", title)).strip(),
             "severity": above[-1] if above else "unknown",
+            "kind": KINDS[kind.group(1)] if kind else "unknown",
             "prompt": _unquote(prompt.group(1)) if prompt else "",
         })
-    return {"count": count, "items": items if count else []}
+    # A listed open finding is never dropped, even in a group the parser doesn't know: it comes
+    # through with kind "unknown", which goes to the owner (factory.serious).
+    return {"count": max(groups, len(items)), "items": items}
 
 
 def blocking(items: list[dict], min_severity: str = "medium") -> list[dict]:
@@ -100,13 +118,24 @@ def is_fresh(body: str, head_sha: str) -> bool:
     return analysed_commit(body) == head_sha
 
 
+def pages(text: str) -> list:
+    """Every item from `gh api --paginate`, which prints one JSON array per page, back to back.
+    Anything that isn't an array (an error object, say) is an error, never a silent short list."""
+    out, dec, i = [], json.JSONDecoder(), 0
+    while (i := len(text) - len(text[i:].lstrip())) < len(text):
+        page, i = dec.raw_decode(text, i)
+        if not isinstance(page, list):
+            raise ValueError(f"gh returned {type(page).__name__}, not a page of results")
+        out.extend(page)
+    return out
+
+
 def _run(*cmd: str) -> str:
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
 
 
 def _latest_review(repo: str, pr: int) -> dict | None:
-    raw = _run("gh", "api", "--paginate", f"repos/{repo}/issues/{pr}/comments")
-    comments = json.loads(raw.replace("][", ",")) if raw else []
+    comments = pages(_run("gh", "api", "--paginate", f"repos/{repo}/issues/{pr}/comments?per_page=100"))
     reviews = [
         c for c in comments
         if "qodo" in c["user"]["login"].lower() and MARKER in (c.get("body") or "")

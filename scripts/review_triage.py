@@ -105,7 +105,7 @@ def triage(finding: dict, changed: list[str], globs: dict[int, list[str]]) -> di
     else:
         category, relevance = "in-scope", min(5, base + (1 if standards else 0))
     return {"fingerprint": fingerprint(finding), "title": finding["title"], "severity": finding.get("severity"),
-            "files": files, "category": category, "relevance": relevance, "standards": standards}
+            "kind": finding.get("kind", "unknown"), "files": files, "category": category, "relevance": relevance, "standards": standards}
 
 
 # --- tags and verdicts -----------------------------------------------------------

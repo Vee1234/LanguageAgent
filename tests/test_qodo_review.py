@@ -194,3 +194,107 @@ def test_not_a_qodo_review():
     assert parse_summary("<h3>PR Summary by Qodo</h3> …")["count"] is None
 
 
+
+
+# --- finding kinds (auto-merge needs to tell bugs from rule violations) ------
+
+MIXED = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (1)</code> <code>📘 Rule violations (1)</code> <code>📎 Requirement gaps (1)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Saving can freeze paging <code>🐞 Bug</code></summary>
+</details>
+<details>
+<summary>  2.  Card hides a missing register <code>📘 Rule violation</code></summary>
+</details>
+<details>
+<summary>  3.  Edge case not covered <code>📎 Requirement gap</code></summary>
+</details>
+<details>
+<summary>  4.  Something new <code>🧪 Other</code></summary>
+</details>
+"""
+
+
+def test_each_finding_takes_its_kind_from_its_own_tag():
+    assert [i["kind"] for i in parse_summary(MIXED)["items"]] == [
+        "bug", "rule-violation", "requirement-gap", "unknown"]
+
+
+def test_the_count_covers_every_group_not_only_bugs():
+    # three in known groups, plus the listed "🧪 Other" finding no group badge counts
+    assert parse_summary(MIXED)["count"] == 4
+
+
+def test_zero_bugs_does_not_hide_a_rule_violation():
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (0)</code> <code>📘 Rule violations (1)</code> <code>📎 Requirement gaps (0)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Card hides a missing register <code>📘 Rule violation</code></summary>
+</details>
+"""
+    review = parse_summary(body)
+    assert review["count"] == 1
+    assert [(i["title"], i["kind"]) for i in review["items"]] == [("Card hides a missing register", "rule-violation")]
+
+
+def test_the_latest_review_is_found_past_the_first_page_and_brackets_in_bodies_survive(monkeypatch):
+    import json
+    from scripts import qodo_review
+    from scripts.qodo_review import MARKER
+    page1 = [{"user": {"login": "someone"}, "body": "see grid[0][1]", "updated_at": "2026-01-01"}]
+    page2 = [{"user": {"login": "qodo-code-review[bot]"}, "body": f"{MARKER} uses a[0][1]", "updated_at": "2026-01-02"}]
+    monkeypatch.setattr(qodo_review, "_run", lambda *a: json.dumps(page1) + json.dumps(page2))
+    assert qodo_review._latest_review("o/r", 1)["body"] == f"{MARKER} uses a[0][1]"
+
+
+def test_a_finding_in_a_group_the_parser_does_not_know_is_still_returned():
+    # Every known group is zero, but Qodo lists a finding under a new group: it must not vanish.
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (0)</code> <code>📘 Rule violations (0)</code> <code>🔐 Secrets (1)</code>
+{BADGE.format("Low")}
+<details>
+<summary>  1.  Token printed in logs <code>🔐 Secret</code></summary>
+</details>
+"""
+    review = parse_summary(body)
+    assert review["count"] == 1
+    assert [(i["title"], i["severity"], i["kind"]) for i in review["items"]] == [
+        ("Token printed in logs", "low", "unknown")]
+
+
+def test_the_kind_is_the_tag_that_ends_the_summary_line_not_one_inside_the_title():
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (2)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Crash on <code>Rule violation</code> parsing <code>🐞 Bug</code></summary>
+</details>
+<details>
+<summary>  2.  Mentions <code>Bug</code> but is new <code>🧪 Other</code></summary>
+</details>
+"""
+    items = parse_summary(body)["items"]
+    assert [i["kind"] for i in items] == ["bug", "unknown"]
+    # the title keeps its inline code, and only the trailing kind tag is dropped
+    assert [i["title"] for i in items] == ["Crash on Rule violation parsing", "Mentions Bug but is new"]
+
+
+def test_only_the_header_badges_count_not_ones_quoted_in_a_finding_or_resolved():
+    body = f"""<h3>Code Review by Qodo</h3>
+<code>🐞 Bugs (1)</code>
+{BADGE.format("Medium")}
+<details>
+<summary>  1.  Counts quoted badges <code>🐞 Bug</code></summary>
+> <details><summary>Agent prompt</summary>
+>```
+>Qodo writes <code>🐞 Bugs (7)</code> and <code>📘 Rule violations (4)</code> in its header.
+>```
+></details>
+</details>
+<details><summary><strong>Resolved findings</strong></summary>
+<code>🐞 Bugs (9)</code>
+</details>
+"""
+    assert parse_summary(body)["count"] == 1

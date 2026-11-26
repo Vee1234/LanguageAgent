@@ -120,7 +120,7 @@ Docs-only and config-only changes don't need tests.
      `tests/test_factory.py`, `tests/test_factory_hooks.py`, `tests/test_discussion_post.py`, `scripts/qodo_review.py`,
      `scripts/learning_score.py`, `scripts/backlog_order.py`, `tests/test_qodo_review.py`,
      `tests/test_learning_score.py`, `tests/test_feature_commit_hook.py`,
-     `tests/test_backlog_order.py`.
+     `tests/test_backlog_order.py`, `.github/workflows/factory-*.yml`, `tests/test_factory_workflows.py`.
    - **Rule:** Don't leave review comments, suggestions or findings on these files. Focus reviews on
      the product: `app/`, `supabase/` and the Python card modules.
    - **Why:** These files are the maintainer's own tooling for learning and building (skills, hooks,
