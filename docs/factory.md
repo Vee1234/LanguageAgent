@@ -19,6 +19,15 @@ The cycle repeats until the **gate passes**:
 - Qodo has reviewed that same commit;
 - no finding at or above the relevance threshold is left without a clearing verdict.
 
+**When it stops (the retry limit).** A *round* is a pushed commit that has been analysed and
+reviewed by Qodo and still has work left. It is recorded once per commit as a
+`<!-- factory-round head=SHA -->` PR comment, counted only from the factory's job token or the
+owner. For the first **3** rounds every finding is the agent's to fix, serious ones included.
+From the 4th commit on, only **high and critical** findings are (an unreadable severity counts
+as high). Once none of those is left, the gate's status is `handover`: the agent posts one PR
+comment listing the medium and low findings for the owner, and stops. So it stops at whichever
+comes first: nothing open, or, after 3 rounds, nothing high or critical open. The owner merges.
+
 ## Hooks
 
 | Hook | When | What it does |

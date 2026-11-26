@@ -12,8 +12,9 @@ def review(fresh=True, findings=()):
     return {"fresh": fresh, "findings": list(findings)}
 
 
-def f(fp, relevance=3):
-    return {"fingerprint": fp, "title": f"finding {fp}", "relevance": relevance, "category": "in-scope"}
+def f(fp, relevance=3, severity="medium"):
+    return {"fingerprint": fp, "title": f"finding {fp}", "relevance": relevance, "category": "in-scope",
+            "severity": severity}
 
 
 def actions(result):
@@ -89,3 +90,113 @@ def test_the_hook_blocks_again_only_after_progress():
     assert not should_block(state, HEAD, "d1")
     assert should_block(state, HEAD, "d2")
     assert should_block(state, "b" * 40, "d1")
+
+
+# --- the stopping rule: everything for 3 rounds, then only high and critical ------
+
+def test_for_the_first_three_rounds_every_finding_is_work():
+    r = gate(HEAD, analysis(), review(findings=[f("m"), f("l", severity="low")]), {}, rounds=2)
+    assert actions(r) == ["triage", "triage"] and r["left"] == []
+
+
+def test_after_three_rounds_only_high_and_critical_findings_are_work():
+    fs = [f("h", severity="high"), f("c", severity="critical"), f("m"), f("l", severity="low")]
+    r = gate(HEAD, analysis(), review(findings=fs), {}, rounds=3)
+    assert [a["fingerprint"] for a in r["actions"]] == ["h", "c"] and r["status"] == "work"
+    assert [x["fingerprint"] for x in r["left"]] == ["m", "l"]
+
+
+def test_once_no_high_finding_is_left_the_rest_is_handed_to_the_owner():
+    r = gate(HEAD, analysis(), review(findings=[f("m"), f("l", severity="low")]), {}, rounds=4)
+    assert r["status"] == "handover" and r["actions"] == [] and len(r["left"]) == 2
+
+
+def test_an_unreadable_severity_counts_as_high_after_the_limit():
+    r = gate(HEAD, analysis(), review(findings=[f("u", severity="unknown")]), {}, rounds=3)
+    assert actions(r) == ["triage"]
+
+
+def test_nothing_open_passes_whatever_the_round():
+    assert gate(HEAD, analysis(), review(), {}, rounds=7)["status"] == "pass"
+
+
+def test_failing_criteria_are_always_work_even_after_the_limit():
+    assert actions(gate(HEAD, analysis(failing=["x"]), review(), {}, rounds=5)) == ["fix-criteria"]
+
+
+def test_a_head_is_checked_only_once_it_is_analysed_and_reviewed():
+    assert gate(HEAD, None, review(), {})["checked"] is False
+    assert gate(HEAD, analysis(failing=["x"]), review(fresh=False), {})["checked"] is False
+    assert gate(HEAD, analysis(failing=["x"]), review(), {})["checked"] is True
+
+
+# --- rounds: one per checked head with work left, from trusted PR comments ------
+
+from scripts.factory import count_rounds, round_marker  # noqa: E402
+
+
+def test_rounds_count_distinct_heads_from_the_markers_in_pr_comments():
+    comments = [round_marker("a" * 40) + " round 1", "unrelated", round_marker("b" * 40), round_marker("a" * 40),
+                "quoted <!-- factory-round head=nonsense -->"]
+    assert count_rounds(comments) == 2
+
+
+def test_only_round_markers_the_factory_or_the_owner_posted_count(monkeypatch):
+    import json
+    from scripts import factory
+    monkeypatch.setattr(factory, "repo_name", lambda: "o/r")
+    fake = "\n".join(round_marker(c * 40) for c in "bcd")
+    comments = [{"body": fake, "user": {"login": "stranger"}},
+                {"body": round_marker("e" * 40), "user": {"login": "github-actions[bot]"}},
+                {"body": round_marker("f" * 40), "user": {"login": "o"}},
+                {"body": round_marker("0" * 40), "user": None}]
+    monkeypatch.setattr(factory, "_gh", lambda *a: json.dumps(comments))
+    assert count_rounds(factory.pr_comments(1)) == 2
+
+
+def test_a_round_is_recorded_once_per_head(monkeypatch):
+    from scripts import factory
+    posted = []
+    monkeypatch.setattr(factory, "pr_comments", lambda n: list(posted))
+    monkeypatch.setattr(factory, "_gh", lambda *a: posted.append(a[a.index("--body") + 1]) or "")
+    info = {"number": 7, "headRefOid": HEAD}
+    assert factory.record_round(info) == 1 and factory.record_round(info) == 1 and len(posted) == 1
+
+
+def test_earlier_rounds_never_count_the_head_being_checked():
+    from scripts.factory import earlier_rounds
+    comments = [round_marker("b" * 40), round_marker("c" * 40), round_marker(HEAD)]
+    assert earlier_rounds(comments, HEAD) == 2 and earlier_rounds(comments, "d" * 40) == 3
+
+
+def run_gate(monkeypatch, tmp_path, prior, findings, checked=True):
+    import argparse
+    import contextlib
+    import io
+    import json
+    from scripts import factory
+    posted = []
+    info = {"number": 7, "ticket": 4, "headRefOid": HEAD, "headRefName": "ticket-4-x", "changed": []}
+    monkeypatch.setattr(factory, "pr_info", lambda pr: info)
+    monkeypatch.setattr(factory, "current_review", lambda i: review(fresh=checked, findings=findings))
+    monkeypatch.setattr(factory, "load_analysis", lambda h: analysis())
+    monkeypatch.setattr(factory, "read_ledger", lambda: [])
+    monkeypatch.setattr(factory, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(factory, "pr_comments", lambda n: [round_marker(c * 40) for c in "bcdef"[:prior]] + posted)
+    monkeypatch.setattr(factory, "_gh", lambda *a: posted.append(a[a.index("--body") + 1]) or "")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        factory.cmd_gate(argparse.Namespace(pr="7", threshold=2, hook=True))
+    return json.loads(out.getvalue()), posted
+
+
+def test_the_fourth_head_hands_medium_findings_to_the_owner(monkeypatch, tmp_path):
+    msg, posted = run_gate(monkeypatch, tmp_path, prior=3, findings=[f("m")])
+    assert "handover" in msg["systemMessage"] and "finding m" in msg["systemMessage"] and posted == []
+
+
+def test_a_checked_head_with_work_is_recorded_as_a_round_and_the_agent_keeps_going(monkeypatch, tmp_path):
+    msg, posted = run_gate(monkeypatch, tmp_path, prior=1, findings=[f("m")])
+    assert msg["decision"] == "block" and len(posted) == 1
+    msg, posted = run_gate(monkeypatch, tmp_path, prior=1, findings=[f("m")], checked=False)
+    assert posted == []  # Qodo hasn't reviewed this head: not a round yet
