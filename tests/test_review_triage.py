@@ -202,3 +202,9 @@ def test_wrong_and_by_design_findings_are_noise():
           entry(1, verdict="out-of-scope", new_ticket=70, fp="c")]
     out = patterns(es, pr=0, open_fingerprints=set())
     assert sorted(e["fingerprint"] for e in out["noise"]) == ["a", "b"]
+
+
+def test_triage_keeps_the_finding_kind_and_an_absent_kind_is_unknown():
+    with_kind = {**finding(files=["app/src/cards.ts"]), "kind": "rule-violation"}
+    assert triage(with_kind, changed=["app/src/cards.ts"], globs=GLOBS)["kind"] == "rule-violation"
+    assert triage(finding(), changed=["app/src/cards.ts"], globs=GLOBS)["kind"] == "unknown"
