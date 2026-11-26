@@ -126,8 +126,12 @@ PR merged ──▶ factory-next ──▶ label "ready-for-agent" ──▶ fac
   finishes (Qodo never reviewed, no PR) is also `agent-stuck`.
 - **A trusted copy decides the merge.** `factory-run` has four jobs, each on a fresh machine:
   `start` and `merge` check out `master` and are the only jobs with your token; `build` runs the
-  agent; `verify` runs the PR's tests and build with no secrets and hands the ticket analysis
-  over as a file. `merge` reads the PR's changed files from GitHub and its ledger as data, and
+  agent; `verify` is the judge: **master's** `ticket_analysis.py` decides, at the exact commit the
+  build job pushed (it refuses if the PR's head has moved), and the PR's code (its install, tests
+  and build) runs only inside a throwaway Docker container built from that commit
+  (`.github/factory/sandbox.Dockerfile`, always master's copy): tests run with no network and no
+  token, and only exit codes come back. Neither checkout keeps a credential. The judge hands the
+  analysis over as a file. `merge` reads the PR's changed files from GitHub and its ledger as data, and
   never runs the PR's code. A PR that changes the factory's own code (`.github/`, `.claude/`,
   `scripts/`, `AGENTS.md`, `docs/factory.md`) never merges on its own.
 - **Only your own tickets.** The repo's interaction limit is collaborators-only (renew it every

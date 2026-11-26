@@ -122,3 +122,47 @@ def test_a_ticket_without_criteria_cannot_pass():
     r = analyse(42, "## Goal\nx\n", GOOD_PR, "ticket-42-x", passing)
     assert not r["passed"]
     assert any("no acceptance criteria" in p for p in r["problems"])
+
+
+# --- the trusted judge: PR code runs only in a sealed container -----------------
+
+from scripts import ticket_analysis as ta  # noqa: E402
+
+HEAD_SHA = "c" * 40
+
+
+def test_a_sandboxed_command_runs_in_a_throwaway_container_with_no_network():
+    assert ta.sandboxed(["python3", "-m", "pytest"], None) == ["python3", "-m", "pytest"]
+    assert ta.sandboxed(["python3", "-m", "pytest"], "factory-pr") == [
+        "docker", "run", "--rm", "--network", "none", "factory-pr", "python3", "-m", "pytest"]
+
+
+def fake_run(seen, code=0):
+    class R:
+        returncode = code
+    return lambda cmd, **kw: seen.append(cmd) or R()
+
+
+def test_named_tests_and_the_checks_run_in_the_sandbox(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(ta.subprocess, "run", fake_run(seen))
+    assert ta.run_test("tests/test_a.py::test_b", sandbox="factory-pr")
+    assert seen[-1][:6] == ["docker", "run", "--rm", "--network", "none", "factory-pr"]
+    pr = {"number": 7, "body": GOOD_PR, "headRefName": "ticket-42-x", "headRefOid": HEAD_SHA}
+    monkeypatch.setattr(ta, "_gh_json", lambda *a: pr if a[0] == "pr" else {"body": TICKET})
+    seen.clear()
+    out = tmp_path / "analysis.json"
+    ta.main(["--pr", "7", "--sandbox", "factory-pr", "--expect-head", HEAD_SHA, "--out", str(out)])
+    assert seen and all(c[:2] == ["docker", "run"] for c in seen)  # nothing from the PR ran on the host
+    assert __import__("json").loads(out.read_text())["head"] == HEAD_SHA
+
+
+def test_the_judge_refuses_a_pr_whose_head_moved(monkeypatch, tmp_path, capsys):
+    seen = []
+    monkeypatch.setattr(ta.subprocess, "run", fake_run(seen))
+    pr = {"number": 7, "body": GOOD_PR, "headRefName": "ticket-42-x", "headRefOid": "d" * 40}
+    monkeypatch.setattr(ta, "_gh_json", lambda *a: pr if a[0] == "pr" else {"body": TICKET})
+    out = tmp_path / "analysis.json"
+    code = ta.main(["--pr", "7", "--sandbox", "factory-pr", "--expect-head", HEAD_SHA, "--out", str(out)])
+    assert code == 3 and not out.exists() and seen == []
+    assert "moved" in capsys.readouterr().err

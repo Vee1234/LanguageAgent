@@ -45,6 +45,7 @@ jobs:
       issues: read  # read only: the PR is judged against the ticket, so the agent must not edit it
     outputs:
       pr: ${{ steps.pr.outputs.pr }}
+      head: ${{ steps.pr.outputs.head }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -91,10 +92,12 @@ jobs:
           pr=$(gh pr list --state open --json number,headRefName \
                  -q ".[] | select(.headRefName | startswith(\"ticket-${TICKET}-\")) | .number" | head -1)
           echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          [ -n "$pr" ] && echo "head=$(gh pr view "$pr" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT" || true
 
   verify:
-    # Runs the PR's code (its tests and build) on a fresh machine with no secrets, and hands the
-    # ticket analysis to the merge job as a file.
+    # The trusted judge: master's ticket_analysis.py decides, and the PR's code (install, tests,
+    # build) runs only inside a throwaway container built from the exact commit the build job
+    # pushed. No step that runs PR code holds a token, and neither checkout keeps a credential.
     needs: build
     if: always() && needs.build.outputs.pr != ''
     runs-on: ubuntu-latest
@@ -105,20 +108,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: refs/pull/${{ needs.build.outputs.pr }}/head
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - uses: actions/setup-node@v4
-        with: { node-version: "20", cache: npm, cache-dependency-path: app/package-lock.json }
-      - name: Ticket analysis
+          ref: ${{ github.event.repository.default_branch }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.head }}
+          path: pr
+          persist-credentials: false
+      - name: Build the sandbox from the PR
+        run: docker build -q -f trusted/.github/factory/sandbox.Dockerfile -t factory-pr pr
+      - name: Judge
+        working-directory: trusted
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pip install python-dotenv pytest
-          npm --prefix app ci
-          python3 scripts/ticket_analysis.py --pr "${{ needs.build.outputs.pr }}" || true
-          cp .git/factory/analysis-*.json analysis.json
+          python3 scripts/ticket_analysis.py --pr "${{ needs.build.outputs.pr }}" --sandbox factory-pr \
+            --expect-head "${{ needs.build.outputs.head }}" --out ../analysis.json || [ -f ../analysis.json ]
       - uses: actions/upload-artifact@v4
         with: { name: analysis, path: analysis.json }
 

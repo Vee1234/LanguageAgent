@@ -85,3 +85,36 @@ def test_the_merge_job_starts_the_next_ticket_and_factory_next_only_takes_the_ow
 def test_the_agent_job_cannot_edit_tickets():
     # the ticket is what the PR is judged against: the agent's token must not be able to rewrite it
     assert "issues: write" not in jobs(RUN)["build"]
+
+
+def steps(job: str) -> list[str]:
+    return re.split(r"^      - ", job, flags=re.M)[1:]
+
+
+def test_verify_judges_with_masters_code_and_runs_the_pr_only_inside_a_container():
+    v = jobs(RUN)["verify"]
+    assert "ref: ${{ github.event.repository.default_branch }}" in v and "path: trusted" in v
+    assert "ref: ${{ needs.build.outputs.head }}" in v and "path: pr" in v  # the exact commit built
+    assert v.count("persist-credentials: false") == 2  # no credential left in either checkout
+    assert "docker build" in v and "-f trusted/.github/factory/sandbox.Dockerfile" in v
+    judge = next(s for s in steps(v) if "ticket_analysis.py" in s)
+    assert "working-directory: trusted" in judge  # master's copy of the script is the judge
+    for flag in ["python3 scripts/ticket_analysis.py", "--sandbox", "--expect-head", "--out"]:
+        assert flag in judge, flag
+    # nothing from the PR is installed or run on the runner itself, and only the judge holds a token
+    assert "npm --prefix app ci" not in v and "pip install" not in v
+    assert [s for s in steps(v) if "GH_TOKEN" in s] == [judge]
+
+
+def test_the_build_job_reports_the_head_commit_it_pushed():
+    b = jobs(RUN)["build"]
+    assert "head: ${{ steps.pr.outputs.head }}" in b and 'echo "head=' in b
+
+
+DOCKERFILE = Path(__file__).resolve().parent.parent / ".github/factory/sandbox.Dockerfile"
+
+
+def test_the_sandbox_image_installs_the_pr_inside_the_container():
+    d = DOCKERFILE.read_text()
+    assert re.search(r"^FROM \S+@sha256:[0-9a-f]{64}", d, re.M)  # a pinned base image
+    assert "COPY . /w" in d and "npm --prefix app ci" in d and "WORKDIR /w" in d
