@@ -21,7 +21,10 @@ def test_only_the_owner_adding_ready_for_agent_starts_a_run_and_one_runs_at_a_ti
     build = jobs(RUN)["build"]
     assert "github.event.label.name == 'ready-for-agent'" in build
     assert "github.event.sender.login == github.repository_owner" in build
-    assert re.search(r"^concurrency:\n  group: factory\n  cancel-in-progress: false", RUN, re.M)
+    # On the job, not the workflow: other label events skip the job and so never enter the group,
+    # where they could replace a pending ready-for-agent run.
+    assert not re.search(r"^concurrency:", RUN, re.M)
+    assert re.search(r"^    concurrency:\n      group: factory\n      cancel-in-progress: false", build, re.M)
     assert "timeout-minutes:" in build
 
 
@@ -44,10 +47,13 @@ def test_the_agent_may_run_exactly_the_commands_its_workflow_needs():
                  "Bash(python3 scripts/factory.py:*)", "Bash(python3 scripts/qodo_review.py:*)",
                  "Bash(python3 scripts/ticket_analysis.py:*)", "Bash(git status:*)", "Bash(git diff:*)",
                  "Bash(git add:*)", "Bash(git commit:*)", "Bash(git checkout:*)", "Bash(git push)",
-                 "Bash(git push -u origin ticket-:*)", "Bash(gh pr create:*)", "Bash(gh pr view:*)",
+                 "Bash(git push -u origin HEAD)", "Bash(python3 scripts/backlog_order.py pr-body:*)",
+                 "Bash(gh pr create:*)", "Bash(gh pr view:*)",
                  "Bash(gh pr comment:*)", "Bash(gh issue view:*)"]:
         assert tool in a, tool
     assert "Bash" not in a and "Bash(*)" not in a
+    # pushes only the current branch: no refspecs, no +force, no prefix that a :master can follow
+    assert [t for t in a if t.startswith("Bash(git push")] == ["Bash(git push)", "Bash(git push -u origin HEAD)"]
     for t in a:
         assert not t.startswith(("Bash(gh pr merge", "Bash(gh api", "Bash(gh issue edit", "Bash(gh label")), t
         assert "discussion_post" not in t, t  # forum posts need the owner's approval first
@@ -59,7 +65,8 @@ def test_the_agent_may_run_exactly_the_commands_its_workflow_needs():
 def test_the_agent_self_checks_then_works_through_qodo_until_the_gate_says_stop():
     prompt = jobs(RUN)["build"].split("prompt: |", 1)[1].split("claude_args:", 1)[0]
     for must in ["LessonsLearned.md", "AGENTS.md", "approved", "python3 scripts/qodo_review.py",
-                 "python3 scripts/factory.py gate", "pass", "handover", "Never merge"]:
+                 "python3 scripts/factory.py gate", "pass", "handover", "user", "needs-user",
+                 "Skip the project-board steps", "git push -u origin HEAD", "Never merge"]:
         assert must in prompt, must
     assert prompt.index("LessonsLearned.md") < prompt.index("qodo_review.py")  # self-check before Qodo
 

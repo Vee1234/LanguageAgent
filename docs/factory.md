@@ -103,20 +103,30 @@ These are proposals. A rule, lesson or skill changes only after the user approve
 
 You and Claude pick the next ticket together in conversation; nothing picks or labels tickets on
 its own. Then **you** add `ready-for-agent` to it. `.github/workflows/factory-run.yml` starts only
-when the repo owner adds that label, and runs one ticket at a time (at most 3 hours each):
+when the repo owner adds that label, and only for a ticket you wrote and nobody else edited (the
+agent follows the ticket's text). It runs one ticket at a time, at most 3 hours each. **Label one
+ticket at a time:** GitHub keeps only one waiting run, so a third label while one runs and one
+waits would replace the waiting one.
 
-1. The agent builds the ticket test-first (ticket-resolver) and opens the PR.
+1. The agent builds the ticket test-first (ticket-resolver) and opens the PR. It skips the
+   skill's board steps: you move the cards.
 2. Before opening it, and before every push, it checks its diff against the **approved** lessons
    in `LessonsLearned.md` and the `AGENTS.md` standards for the files it changed.
 3. It waits for Qodo's review, which takes a while, then runs the gate and fixes what it says,
-   serious findings included, push after push, until the gate says `pass` or `handover` (see
-   *When it stops* above). It ends with one PR comment: a summary, or the findings left for you.
+   serious findings included, push after push, until the gate says `pass`, `handover` (see
+   *When it stops* above) or `user`. It ends with one PR comment: a summary, the findings left
+   for you, or the needs-user checks with the exact steps for you to do them.
 4. **You merge.** The agent never merges and never changes labels.
 
 If the run fails or times out, a separate job labels the ticket `agent-stuck` with a link to the run.
 
-Locked down: the agent uses the job's own token (never yours), can read the ticket but not edit
-it, and may run only an allowlist of commands; `master`'s ruleset blocks pushes to it.
+**What actually stops a merge is GitHub, not the agent's instructions.** `master`'s ruleset needs
+a PR with one approving review, and only a repository admin (you) can bypass it. The agent's job
+token is not an admin and can't approve its own PR, so it can neither merge nor push to `master`,
+whatever it runs. The command allowlist, the read-only ticket access and "never merge" in the
+prompt are a second layer: they keep the agent on its workflow, but a determined agent could get
+around a list of commands (for example by writing a script and running it), so they are not the
+boundary. The agent uses the job's own token, never yours.
 Setup: the repo secret `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and the labels
 `ready-for-agent` and `agent-stuck`.
 
